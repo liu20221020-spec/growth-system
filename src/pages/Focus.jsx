@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Play, Square, SkipForward } from 'lucide-react'
+import { ArrowLeft, Play, Square, SkipForward, Plus, Check, X } from 'lucide-react'
 import useStore from '../store/useStore'
 import { LANES, LANE_ORDER, DIFFICULTY, calcFocusReward } from '../lib/gameLogic'
 
@@ -13,7 +13,16 @@ const FOCUS_MODES = [
 
 export default function Focus() {
   const navigate = useNavigate()
-  const { completeFocusBlock, abandonFocusBlock, getLaneTags, todayStatus } = useStore()
+  const { completeFocusBlock, abandonFocusBlock, getLaneTags, todayStatus,
+          addLaneTag, removeLaneTag, addLanguage, removeLanguage, deduplicateTags,
+          languageConfig } = useStore()
+  const [addingTag, setAddingTag] = useState(false)
+  const [editingTags, setEditingTags] = useState(false)
+  const [newTagInput, setNewTagInput] = useState('')
+  const newTagRef = useRef(null)
+
+  // 首次渲染时清理重复标签
+  useEffect(() => { deduplicateTags() }, [])
 
   const [step, setStep] = useState('select') // select | running | done
   const [selectedLane, setSelectedLane] = useState('')
@@ -28,6 +37,27 @@ export default function Focus() {
 
   const lane = LANES[selectedLane]
   const tags = selectedLane ? getLaneTags(selectedLane) : []
+
+  // 提交新标签（带去重保护）
+  const submitNewTag = () => {
+    const val = newTagInput.trim()
+    if (!val || !selectedLane) return
+    if (selectedLane === 'language') {
+      if (!languageConfig.languages.includes(val)) {
+        addLanguage(val)
+        // 语言分路添加语种后，自动选第一个能力组合
+        setTimeout(() => setSelectedTag(`${val}·听力`), 50)
+      }
+    } else {
+      // 检查是否已存在
+      if (!tags.includes(val)) {
+        addLaneTag(selectedLane, val)
+        setTimeout(() => setSelectedTag(val), 50) // 添加后自动选中
+      }
+    }
+    setNewTagInput('')
+    setAddingTag(false)
+  }
   const reward = selectedLane ? calcFocusReward(selectedLane, selectedDiff) : 0
   const finalReward = todayStatus === 'poor' ? Math.round(reward * 1.3) : reward
 
@@ -194,7 +224,7 @@ export default function Focus() {
           <h2 className="text-xs text-gray-500 mb-3 font-medium uppercase tracking-wider">选择分路</h2>
           <div className="grid grid-cols-3 gap-2">
             {LANE_ORDER.filter(id => id !== 'life').map(id => (
-              <button key={id} onClick={() => { setSelectedLane(id); setSelectedTag('') }}
+              <button key={id} onClick={() => { setSelectedLane(id); setSelectedTag(''); setAddingTag(false); setEditingTags(false); setNewTagInput('') }}
                 className={`p-3 rounded-xl border text-center transition-all ${
                   selectedLane === id
                     ? 'border-blue-500/60 bg-blue-500/15'
@@ -209,21 +239,108 @@ export default function Focus() {
         </section>
 
         {/* 选择标签 */}
-        {selectedLane && tags.length > 0 && (
+        {selectedLane && (
           <section className="mb-6">
-            <h2 className="text-xs text-gray-500 mb-3 font-medium uppercase tracking-wider">领域标签</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xs text-gray-500 font-medium uppercase tracking-wider">领域标签</h2>
+              <div className="flex items-center gap-3">
+                {/* 编辑/完成 */}
+                {tags.length > 0 && !addingTag && (
+                  <button
+                    onClick={() => { setEditingTags(!editingTags); setSelectedTag('') }}
+                    className={`text-xs transition-colors ${editingTags ? 'text-red-400 font-bold' : 'text-gray-500 hover:text-gray-300'}`}>
+                    {editingTags ? '完成编辑' : '管理'}
+                  </button>
+                )}
+                {/* 添加 */}
+                {!addingTag && !editingTags && (
+                  <button
+                    onClick={() => { setAddingTag(true); setTimeout(() => newTagRef.current?.focus(), 50) }}
+                    className="flex items-center gap-1 text-xs text-blue-400/70 hover:text-blue-400 transition-colors">
+                    <Plus size={11} />
+                    {selectedLane === 'language' ? '添加语种' : '添加标签'}
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div className="flex flex-wrap gap-2">
               {tags.map(tag => (
-                <button key={tag} onClick={() => setSelectedTag(tag)}
-                  className={`px-3 py-1.5 rounded-lg text-sm border transition-all ${
-                    selectedTag === tag
-                      ? 'border-blue-500/60 bg-blue-500/20 text-blue-300'
-                      : 'border-white/10 bg-white/5 text-gray-300 hover:bg-white/8'
-                  }`}>
-                  {tag}
-                </button>
+                <div key={tag} className="relative">
+                  {/* 编辑模式：显示删除 X */}
+                  {editingTags ? (
+                    <div className="flex items-center gap-1 pl-3 pr-1.5 py-1.5 rounded-lg text-sm border border-red-500/30 bg-red-500/10 text-gray-400">
+                      <span>{tag}</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (selectedLane === 'language') {
+                            const langName = tag.split('·')[0]
+                            if (languageConfig.languages.length > 1) removeLanguage(langName)
+                          } else {
+                            removeLaneTag(selectedLane, tag)
+                            if (selectedTag === tag) setSelectedTag('')
+                          }
+                        }}
+                        className="ml-1 w-4 h-4 rounded-full bg-red-500/30 hover:bg-red-500/60 flex items-center justify-center transition-colors shrink-0">
+                        <X size={9} strokeWidth={2.5} className="text-red-300" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setSelectedTag(tag)}
+                      className={`px-3 py-1.5 rounded-lg text-sm border transition-all ${
+                        selectedTag === tag
+                          ? 'border-blue-500/60 bg-blue-500/20 text-blue-300'
+                          : 'border-white/10 bg-white/5 text-gray-300 hover:bg-white/8'
+                      }`}>
+                      {tag}
+                    </button>
+                  )}
+                </div>
               ))}
+
+              {/* 内联输入框 */}
+              {addingTag && (
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-blue-500/50 bg-blue-500/10">
+                  <input
+                    ref={newTagRef}
+                    value={newTagInput}
+                    onChange={e => setNewTagInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') submitNewTag()
+                      if (e.key === 'Escape') { setAddingTag(false); setNewTagInput('') }
+                    }}
+                    placeholder={selectedLane === 'language' ? '语种名，如：韩语' : '标签名'}
+                    className="bg-transparent text-sm text-blue-200 placeholder-blue-400/40 outline-none w-28"
+                  />
+                  <button onClick={submitNewTag} className="text-blue-400 hover:text-blue-300 shrink-0">
+                    <Check size={13} strokeWidth={2.5} />
+                  </button>
+                  <button onClick={() => { setAddingTag(false); setNewTagInput('') }} className="text-gray-500 hover:text-gray-400 shrink-0">
+                    <X size={13} />
+                  </button>
+                </div>
+              )}
+
+              {/* 空状态提示 */}
+              {tags.length === 0 && !addingTag && (
+                <button
+                  onClick={() => { setAddingTag(true); setTimeout(() => newTagRef.current?.focus(), 50) }}
+                  className="px-3 py-1.5 rounded-lg text-sm border border-dashed border-white/20 text-gray-500 hover:border-blue-500/40 hover:text-blue-400 transition-all">
+                  + 点击添加第一个{selectedLane === 'language' ? '语种' : '标签'}
+                </button>
+              )}
             </div>
+
+            {/* 编辑模式提示 */}
+            {editingTags && (
+              <p className="mt-2 text-xs text-red-400/60">
+                {selectedLane === 'language'
+                  ? '点击 × 删除语种（至少保留一种语言）'
+                  : '点击 × 删除标签，熟练度数据保留'}
+              </p>
+            )}
           </section>
         )}
 

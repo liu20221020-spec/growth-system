@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Plus } from 'lucide-react'
+import { ArrowLeft, Plus, X } from 'lucide-react'
 import { useState } from 'react'
 import useStore from '../store/useStore'
 import { LANES, getRankFromTotalStars, getProficiencyProgress, getLanguageTags, PROFICIENCY_LEVELS } from '../lib/gameLogic'
@@ -15,12 +15,13 @@ const TIER_COLORS = {
 export default function LaneDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { lanes, proficiency, focusBlocks, languageConfig, laneTags, addLanguage, addLaneTag } = useStore()
+  const { lanes, proficiency, focusBlocks, languageConfig, laneTags, addLanguage, addLaneTag, removeLaneTag, removeLanguage } = useStore()
   const lane = LANES[id]
   const data = lanes[id] || { totalStars: 0 }
   const { rank, starsInDiv } = getRankFromTotalStars(data.totalStars || 0)
 
   const [showAddTag, setShowAddTag] = useState(false)
+  const [editingTags, setEditingTags] = useState(false)
   const [newTag, setNewTag] = useState('')
 
   if (!lane) return <div className="p-4 text-gray-400">分路不存在</div>
@@ -108,13 +109,31 @@ export default function LaneDetail() {
           <div className="card-bg rounded-2xl p-4 mb-4">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm font-bold text-gray-300">已添加语种</span>
-              <button onClick={() => setShowAddTag(true)} className="text-xs text-blue-400 flex items-center gap-1">
-                <Plus size={12} /> 添加语种
-              </button>
+              <div className="flex items-center gap-3">
+                {languageConfig.languages.length > 1 && (
+                  <button onClick={() => setEditingTags(!editingTags)}
+                    className={`text-xs transition-colors ${editingTags ? 'text-red-400 font-bold' : 'text-gray-500 hover:text-gray-300'}`}>
+                    {editingTags ? '完成' : '管理'}
+                  </button>
+                )}
+                <button onClick={() => setShowAddTag(true)} className="text-xs text-blue-400 flex items-center gap-1">
+                  <Plus size={12} /> 添加语种
+                </button>
+              </div>
             </div>
             <div className="flex flex-wrap gap-2">
               {languageConfig.languages.map(lang => (
-                <span key={lang} className="px-3 py-1 rounded-full bg-teal-500/20 border border-teal-500/30 text-teal-300 text-xs font-bold">{lang}</span>
+                editingTags ? (
+                  <div key={lang} className="flex items-center gap-1 pl-3 pr-1.5 py-1 rounded-full bg-red-500/10 border border-red-500/30 text-gray-400 text-xs font-bold">
+                    <span>{lang}</span>
+                    <button onClick={(e) => { e.stopPropagation(); removeLanguage(lang) }}
+                      className="w-4 h-4 rounded-full bg-red-500/30 hover:bg-red-500/60 flex items-center justify-center transition-colors">
+                      <X size={8} strokeWidth={2.5} className="text-red-300" />
+                    </button>
+                  </div>
+                ) : (
+                  <span key={lang} className="px-3 py-1 rounded-full bg-teal-500/20 border border-teal-500/30 text-teal-300 text-xs font-bold">{lang}</span>
+                )
               ))}
             </div>
           </div>
@@ -124,9 +143,17 @@ export default function LaneDetail() {
         {id !== 'language' && id !== 'life' && (
           <div className="flex items-center justify-between mb-3">
             <span className="text-sm font-bold text-gray-300">领域标签熟练度</span>
-            <button onClick={() => setShowAddTag(true)} className="text-xs text-blue-400 flex items-center gap-1">
-              <Plus size={12} /> 添加标签
-            </button>
+            <div className="flex items-center gap-3">
+              {tags.length > 0 && (
+                <button onClick={() => setEditingTags(!editingTags)}
+                  className={`text-xs transition-colors ${editingTags ? 'text-red-400 font-bold' : 'text-gray-500 hover:text-gray-300'}`}>
+                  {editingTags ? '完成' : '管理'}
+                </button>
+              )}
+              <button onClick={() => { setShowAddTag(true); setEditingTags(false) }} className="text-xs text-blue-400 flex items-center gap-1">
+                <Plus size={12} /> 添加标签
+              </button>
+            </div>
           </div>
         )}
 
@@ -139,14 +166,25 @@ export default function LaneDetail() {
               const points = proficiency[`${id}:${tag}`] || 0
               const { current, progress } = getProficiencyProgress(points)
               const levelColor = ['#00d4aa','#4f9eff','#9f5fff','#f5c518','#ff6b35','#ff4757','#c0c0c0','#ffd700'][current.level - 1]
+              // 语言分路标签不可单独删（需在语种管理里删整个语种）
+              const canDelete = editingTags && id !== 'language' && id !== 'life'
               return (
-                <div key={tag} className="card-bg rounded-xl p-3">
+                <div key={tag} className={`card-bg rounded-xl p-3 transition-all ${canDelete ? 'border border-red-500/20' : ''}`}>
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-medium">{tag}</span>
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-full"
-                      style={{ color: levelColor, background: `${levelColor}20`, border: `1px solid ${levelColor}40` }}>
-                      {current.name} Lv.{current.level}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+                        style={{ color: levelColor, background: `${levelColor}20`, border: `1px solid ${levelColor}40` }}>
+                        {current.name} Lv.{current.level}
+                      </span>
+                      {canDelete && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); removeLaneTag(id, tag) }}
+                          className="w-5 h-5 rounded-full bg-red-500/20 hover:bg-red-500/50 flex items-center justify-center transition-colors">
+                          <X size={10} strokeWidth={2.5} className="text-red-400" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">

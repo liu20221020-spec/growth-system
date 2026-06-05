@@ -73,6 +73,36 @@ export default function Home() {
 
       {/* 顶部区域 */}
       <div className="px-4 pt-12 pb-4">
+
+        {/* 日期栏 */}
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <div className="text-xs text-gray-500">{dayjs().format('YYYY年MM月DD日')}</div>
+            <div className="text-sm font-bold text-gray-300 mt-0.5">
+              {['周日','周一','周二','周三','周四','周五','周六'][dayjs().day()]}
+              {todayStatus && (
+                <span className="ml-2 text-xs px-2 py-0.5 rounded-full"
+                  style={{
+                    background: todayStatus === 'good' ? 'rgba(0,200,83,0.15)' : todayStatus === 'poor' ? 'rgba(255,107,53,0.15)' : 'rgba(79,158,255,0.15)',
+                    color:      todayStatus === 'good' ? '#00c853'              : todayStatus === 'poor' ? '#ff6b35'              : '#4f9eff',
+                    border:     `1px solid ${todayStatus === 'good' ? 'rgba(0,200,83,0.3)' : todayStatus === 'poor' ? 'rgba(255,107,53,0.3)' : 'rgba(79,158,255,0.3)'}`,
+                  }}>
+                  {todayStatus === 'good' ? '⚡ 状态很好' : todayStatus === 'poor' ? '😴 状态很差' : '😊 状态一般'}
+                </span>
+              )}
+            </div>
+          </div>
+          {/* 第几天 · 赛季进度 */}
+          <div className="text-right">
+            <div className="text-xs text-gray-600">
+              {dayjs().format('YYYY')}赛季
+            </div>
+            <div className="text-xs text-gray-500 mt-0.5">
+              第 {Math.ceil((dayjs().diff(dayjs().startOf('year'), 'day') + 1) / 7)} 周
+            </div>
+          </div>
+        </div>
+
         {/* 签到提示 */}
         {showSignInBanner && !showStatusModal && (
           <div onClick={handleSignIn}

@@ -1,6 +1,7 @@
 import useStore from '../store/useStore'
-import { LANES, LANE_ORDER, getRankFromTotalStars, getKingSubTier } from '../lib/gameLogic'
+import { LANES, LANE_ORDER, getRankFromTotalStars } from '../lib/gameLogic'
 import RankBadge from '../components/ui/RankBadge'
+import FocusHeatmap from '../components/summary/FocusHeatmap'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import dayjs from 'dayjs'
 
@@ -45,6 +46,11 @@ export default function Summary() {
               </div>
             </div>
           ))}
+        </div>
+
+        {/* 专注热力图 */}
+        <div className="mb-6">
+          <FocusHeatmap focusBlocks={focusBlocks} />
         </div>
 
         {/* 六条分路当前段位 */}
