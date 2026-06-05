@@ -1,0 +1,273 @@
+import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { ArrowLeft, Play, Square, SkipForward } from 'lucide-react'
+import useStore from '../store/useStore'
+import { LANES, LANE_ORDER, DIFFICULTY, calcFocusReward } from '../lib/gameLogic'
+
+const FOCUS_MODES = [
+  { key: 'full', label: '完整专注', duration: 60, icon: '🔥', desc: '60分钟深度专注' },
+  { key: 'short', label: '短暂专注', duration: 25, icon: '⚡', desc: '25分钟番茄钟' },
+  { key: 'scout', label: '侦察任务', duration: 5, icon: '🔍', desc: '5分钟快速探索' },
+  { key: 'book', label: '预约模式', duration: 15, icon: '📅', desc: '15分钟预约倒计时' },
+]
+
+export default function Focus() {
+  const navigate = useNavigate()
+  const { completeFocusBlock, abandonFocusBlock, getLaneTags, todayStatus } = useStore()
+
+  const [step, setStep] = useState('select') // select | running | done
+  const [selectedLane, setSelectedLane] = useState('')
+  const [selectedTag, setSelectedTag] = useState('')
+  const [selectedDiff, setSelectedDiff] = useState('medium')
+  const [selectedMode, setSelectedMode] = useState('full')
+  const [duration, setDuration] = useState(60)
+  const [timeLeft, setTimeLeft] = useState(0)
+  const [isPaused, setIsPaused] = useState(false)
+  const timerRef = useRef(null)
+  const startTimeRef = useRef(null)
+
+  const lane = LANES[selectedLane]
+  const tags = selectedLane ? getLaneTags(selectedLane) : []
+  const reward = selectedLane ? calcFocusReward(selectedLane, selectedDiff) : 0
+  const finalReward = todayStatus === 'poor' ? Math.round(reward * 1.3) : reward
+
+  useEffect(() => {
+    return () => clearInterval(timerRef.current)
+  }, [])
+
+  const startFocus = () => {
+    const mode = FOCUS_MODES.find(m => m.key === selectedMode)
+    const mins = mode.duration
+    setDuration(mins)
+    setTimeLeft(mins * 60)
+    startTimeRef.current = Date.now()
+    setStep('running')
+    timerRef.current = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(timerRef.current)
+          handleComplete()
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+  }
+
+  const handleComplete = () => {
+    clearInterval(timerRef.current)
+    completeFocusBlock(selectedLane, selectedTag, selectedDiff, duration)
+    setStep('done')
+  }
+
+  const handleAbandon = () => {
+    clearInterval(timerRef.current)
+    abandonFocusBlock(selectedLane, selectedTag, selectedDiff)
+    navigate('/')
+  }
+
+  const togglePause = () => {
+    if (isPaused) {
+      timerRef.current = setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev <= 1) { clearInterval(timerRef.current); handleComplete(); return 0 }
+          return prev - 1
+        })
+      }, 1000)
+    } else {
+      clearInterval(timerRef.current)
+    }
+    setIsPaused(!isPaused)
+  }
+
+  const formatTime = (secs) => {
+    const m = Math.floor(secs / 60).toString().padStart(2, '0')
+    const s = (secs % 60).toString().padStart(2, '0')
+    return `${m}:${s}`
+  }
+
+  const totalSecs = duration * 60
+  const progress = timeLeft / totalSecs
+
+  if (step === 'done') {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-4 pb-24"
+        style={{ background: 'radial-gradient(ellipse at top, #0d2040 0%, #0a0e1a 60%)' }}>
+        <div className="text-6xl mb-4 animate-bounce">🎉</div>
+        <h1 className="text-2xl font-black mb-2">专注完成！</h1>
+        <div className="text-5xl font-black text-yellow-400 mb-1" style={{ textShadow: '0 0 30px rgba(245,197,24,0.5)' }}>
+          +{finalReward.toFixed(1)}元
+        </div>
+        <div className="text-gray-400 text-sm mb-2">{lane?.name} · {selectedTag} · {DIFFICULTY[selectedDiff].label}</div>
+        <div className="text-gray-500 text-xs mb-8">熟练度 +1 | #序列+1</div>
+        <button onClick={() => navigate('/')}
+          className="px-8 py-3 rounded-xl font-bold text-lg"
+          style={{ background: 'linear-gradient(135deg, #1a3a6c, #0d2448)', border: '1px solid rgba(79,158,255,0.4)' }}>
+          返回主页
+        </button>
+      </div>
+    )
+  }
+
+  if (step === 'running') {
+    const circumference = 2 * Math.PI * 80
+    const dashOffset = circumference * progress
+
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center px-4 pb-24"
+        style={{ background: 'radial-gradient(ellipse at center, #0d1a30 0%, #0a0e1a 70%)' }}>
+        <div className="text-center mb-2">
+          <div className="text-sm text-gray-400">{lane?.icon} {lane?.name} · {selectedTag}</div>
+          <div className="text-xs text-gray-500 mt-1">{DIFFICULTY[selectedDiff].label} · 预计+{finalReward.toFixed(1)}元</div>
+        </div>
+
+        {/* 圆形计时器 */}
+        <div className="relative w-56 h-56 my-8">
+          <svg className="w-full h-full -rotate-90" viewBox="0 0 180 180">
+            <circle cx="90" cy="90" r="80" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
+            <circle cx="90" cy="90" r="80" fill="none" stroke="#4f9eff" strokeWidth="8"
+              strokeLinecap="round"
+              strokeDasharray={circumference}
+              strokeDashoffset={circumference - dashOffset}
+              style={{ transition: 'stroke-dashoffset 1s linear', filter: 'drop-shadow(0 0 8px #4f9eff)' }}
+            />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <div className="text-4xl font-black tabular-nums">{formatTime(timeLeft)}</div>
+            <div className="text-xs text-gray-400 mt-1">{isPaused ? '已暂停' : '专注中'}</div>
+          </div>
+        </div>
+
+        {/* 控制按钮 */}
+        <div className="flex items-center gap-6">
+          <button onClick={handleAbandon}
+            className="flex flex-col items-center gap-1 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400">
+            <Square size={24} />
+            <span className="text-xs">放弃(-1星)</span>
+          </button>
+          <button onClick={togglePause}
+            className="flex flex-col items-center gap-1 px-8 py-3 rounded-xl"
+            style={{ background: 'linear-gradient(135deg, #1a3a6c, #0d2448)', border: '1px solid rgba(79,158,255,0.4)' }}>
+            <Play size={28} fill={isPaused ? 'currentColor' : undefined} />
+            <span className="text-xs">{isPaused ? '继续' : '暂停'}</span>
+          </button>
+          <button onClick={handleComplete}
+            className="flex flex-col items-center gap-1 px-4 py-3 rounded-xl bg-green-500/10 border border-green-500/30 text-green-400">
+            <SkipForward size={24} />
+            <span className="text-xs">提前完成</span>
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // 选择阶段
+  return (
+    <div className="min-h-screen pb-24" style={{ background: 'radial-gradient(ellipse at top, #0d1526 0%, #0a0e1a 60%)' }}>
+      <div className="px-4 pt-12 pb-4">
+        <div className="flex items-center gap-3 mb-6">
+          <button onClick={() => navigate('/')}><ArrowLeft size={20} className="text-gray-400" /></button>
+          <h1 className="text-xl font-black">开始专注</h1>
+        </div>
+
+        {/* 专注模式 */}
+        <section className="mb-6">
+          <h2 className="text-xs text-gray-500 mb-3 font-medium uppercase tracking-wider">专注模式</h2>
+          <div className="grid grid-cols-2 gap-2">
+            {FOCUS_MODES.map(m => (
+              <button key={m.key} onClick={() => setSelectedMode(m.key)}
+                className={`p-3 rounded-xl border text-left transition-all ${
+                  selectedMode === m.key
+                    ? 'border-blue-500/60 bg-blue-500/15'
+                    : 'border-white/10 bg-white/5 hover:bg-white/8'
+                }`}>
+                <div className="text-xl mb-1">{m.icon}</div>
+                <div className="text-sm font-bold">{m.label}</div>
+                <div className="text-xs text-gray-400">{m.desc}</div>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* 选择分路 */}
+        <section className="mb-6">
+          <h2 className="text-xs text-gray-500 mb-3 font-medium uppercase tracking-wider">选择分路</h2>
+          <div className="grid grid-cols-3 gap-2">
+            {LANE_ORDER.filter(id => id !== 'life').map(id => (
+              <button key={id} onClick={() => { setSelectedLane(id); setSelectedTag('') }}
+                className={`p-3 rounded-xl border text-center transition-all ${
+                  selectedLane === id
+                    ? 'border-blue-500/60 bg-blue-500/15'
+                    : 'border-white/10 bg-white/5 hover:bg-white/8'
+                }`}>
+                <div className="text-xl mb-1">{LANES[id].icon}</div>
+                <div className="text-xs font-medium">{LANES[id].name}</div>
+                <div className="text-[10px] text-gray-500 mt-0.5">{LANES[id].focusPrice}元/块</div>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* 选择标签 */}
+        {selectedLane && tags.length > 0 && (
+          <section className="mb-6">
+            <h2 className="text-xs text-gray-500 mb-3 font-medium uppercase tracking-wider">领域标签</h2>
+            <div className="flex flex-wrap gap-2">
+              {tags.map(tag => (
+                <button key={tag} onClick={() => setSelectedTag(tag)}
+                  className={`px-3 py-1.5 rounded-lg text-sm border transition-all ${
+                    selectedTag === tag
+                      ? 'border-blue-500/60 bg-blue-500/20 text-blue-300'
+                      : 'border-white/10 bg-white/5 text-gray-300 hover:bg-white/8'
+                  }`}>
+                  {tag}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* 难度选择 */}
+        {selectedTag && (
+          <section className="mb-6">
+            <h2 className="text-xs text-gray-500 mb-3 font-medium uppercase tracking-wider">任务难度</h2>
+            <div className="grid grid-cols-3 gap-2">
+              {Object.entries(DIFFICULTY).map(([key, d]) => (
+                <button key={key} onClick={() => setSelectedDiff(key)}
+                  className={`p-3 rounded-xl border text-center transition-all ${
+                    selectedDiff === key
+                      ? 'border-opacity-60 bg-opacity-15'
+                      : 'border-white/10 bg-white/5'
+                  }`}
+                  style={selectedDiff === key ? { borderColor: `${d.color}60`, backgroundColor: `${d.color}15` } : {}}>
+                  <div className="text-sm font-bold" style={{ color: selectedDiff === key ? d.color : undefined }}>{d.label}</div>
+                  <div className="text-xs text-gray-400">×{d.multiplier}</div>
+                </button>
+              ))}
+            </div>
+
+            {/* 预计额度 */}
+            <div className="mt-4 p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-center">
+              <div className="text-xs text-gray-400 mb-1">本次预计获得</div>
+              <div className="text-3xl font-black text-yellow-400">+{finalReward.toFixed(1)}元</div>
+              {todayStatus === 'poor' && <div className="text-xs text-orange-400 mt-1">状态加成 ×1.3</div>}
+            </div>
+          </section>
+        )}
+
+        {/* 开始按钮 */}
+        <button
+          onClick={startFocus}
+          disabled={!selectedLane || !selectedTag}
+          className={`w-full py-4 rounded-2xl font-black text-lg transition-all ${
+            selectedLane && selectedTag
+              ? 'opacity-100 active:scale-95'
+              : 'opacity-30 cursor-not-allowed'
+          }`}
+          style={{ background: 'linear-gradient(135deg, #1a4a8c, #0d2448)', border: '1px solid rgba(79,158,255,0.4)', boxShadow: selectedLane && selectedTag ? '0 0 20px rgba(79,158,255,0.2)' : 'none' }}>
+          🔥 开始专注
+        </button>
+      </div>
+    </div>
+  )
+}
