@@ -35,7 +35,9 @@ export default function Focus() {
   const [timeLeft, setTimeLeft] = useState(0)
   const [isPaused, setIsPaused] = useState(false)
   const timerRef = useRef(null)
-  const startTimeRef = useRef(null)
+  const startTimeRef = useRef(null)   // Date.now() when focus started
+  const pauseStartRef = useRef(null)  // Date.now() when current pause began
+  const totalPausedRef = useRef(0)    // total ms spent paused
 
   const lane = LANES[selectedLane]
   const tags = selectedLane ? getLaneTags(selectedLane) : []
@@ -64,27 +66,56 @@ export default function Focus() {
   const reward = selectedLane ? calcFocusReward(selectedLane, selectedDiff, modeDuration) : 0
   const finalReward = todayStatus === 'poor' ? Math.round(reward * 1.3) : reward
 
+  // 根据真实流逝时间计算剩余秒数
+  const calcRemaining = (totalSecs) => {
+    const elapsed = Date.now() - startTimeRef.current - totalPausedRef.current
+    return Math.max(0, totalSecs - Math.floor(elapsed / 1000))
+  }
+
+  const startTick = (totalSecs) => {
+    clearInterval(timerRef.current)
+    timerRef.current = setInterval(() => {
+      const remaining = calcRemaining(totalSecs)
+      setTimeLeft(remaining)
+      if (remaining <= 0) {
+        clearInterval(timerRef.current)
+        handleComplete()
+      }
+    }, 500) // 500ms 轮询，确保即使单次 tick 延迟也不会漏掉结束
+  }
+
   useEffect(() => {
     return () => clearInterval(timerRef.current)
   }, [])
 
+  // 切回前台时立即刷新剩余时间
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && step === 'running' && !isPaused) {
+        const totalSecs = duration * 60
+        const remaining = calcRemaining(totalSecs)
+        setTimeLeft(remaining)
+        if (remaining <= 0) {
+          clearInterval(timerRef.current)
+          handleComplete()
+        }
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [step, isPaused, duration])
+
   const startFocus = () => {
     const mode = FOCUS_MODES.find(m => m.key === selectedMode)
     const mins = mode.duration
+    const totalSecs = mins * 60
     setDuration(mins)
-    setTimeLeft(mins * 60)
+    setTimeLeft(totalSecs)
     startTimeRef.current = Date.now()
+    totalPausedRef.current = 0
+    pauseStartRef.current = null
     setStep('running')
-    timerRef.current = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev <= 1) {
-          clearInterval(timerRef.current)
-          handleComplete()
-          return 0
-        }
-        return prev - 1
-      })
-    }, 1000)
+    startTick(totalSecs)
   }
 
   const handleComplete = () => {
@@ -95,7 +126,6 @@ export default function Focus() {
 
   const handleAbandon = () => {
     clearInterval(timerRef.current)
-    // 计算已专注的分钟数
     const elapsedSecs = duration * 60 - timeLeft
     const elapsedMin = Math.max(0, Math.floor(elapsedSecs / 60))
     abandonFocusBlock(selectedLane, selectedTag, selectedDiff, elapsedMin)
@@ -103,15 +133,18 @@ export default function Focus() {
   }
 
   const togglePause = () => {
+    const totalSecs = duration * 60
     if (isPaused) {
-      timerRef.current = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) { clearInterval(timerRef.current); handleComplete(); return 0 }
-          return prev - 1
-        })
-      }, 1000)
+      // 恢复：累加本次暂停时长
+      if (pauseStartRef.current) {
+        totalPausedRef.current += Date.now() - pauseStartRef.current
+        pauseStartRef.current = null
+      }
+      startTick(totalSecs)
     } else {
+      // 暂停：记录暂停开始时间
       clearInterval(timerRef.current)
+      pauseStartRef.current = Date.now()
     }
     setIsPaused(!isPaused)
   }
