@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, ChevronRight, ChevronDown, Check, Trash2, AlertCircle, Timer } from 'lucide-react'
+import { Plus, ChevronRight, ChevronDown, Check, Trash2, AlertCircle, Timer, Pencil } from 'lucide-react'
 import useStore from '../store/useStore'
 import { LANES, LANE_ORDER, DIFFICULTY } from '../lib/gameLogic'
 
@@ -16,25 +16,21 @@ export default function Tasks() {
   const navigate = useNavigate()
   const { tasks, completeTask, deleteTask } = useStore()
   const [showAdd, setShowAdd] = useState(false)
-  const [addDefault, setAddDefault] = useState({}) // 预填 level/parentId
+  const [addDefault, setAddDefault] = useState({})
+  const [editingTask, setEditingTask] = useState(null) // 当前编辑的任务对象
   const [filter, setFilter] = useState('active')
 
   const isActive = (t) => !t.completed
 
-  // 按层级过滤
-  const largeTasks = tasks.filter(t => t.level === 'large' && (filter === 'active' ? isActive(t) : t.completed))
-
-  // 获取某任务的子任务（不受 filter 影响，展示完整子树）
+  const largeTasks   = tasks.filter(t => t.level === 'large'  && (filter === 'active' ? isActive(t) : t.completed))
   const getMediumOf  = (largeId)  => tasks.filter(t => t.level === 'medium' && t.parentId === largeId)
   const getSmallOf   = (mediumId) => tasks.filter(t => t.level === 'small'  && t.parentId === mediumId)
-
-  // 没有归属的中/小任务（孤立任务）
   const orphanMedium = tasks.filter(t => t.level === 'medium' && !t.parentId && (filter === 'active' ? isActive(t) : t.completed))
   const orphanSmall  = tasks.filter(t => t.level === 'small'  && !t.parentId && (filter === 'active' ? isActive(t) : t.completed))
 
-  const openAdd = (defaults = {}) => { setAddDefault(defaults); setShowAdd(true) }
-
-  const goFocus = (task) => navigate('/focus', { state: { task } })
+  const openAdd  = (defaults = {}) => { setAddDefault(defaults); setShowAdd(true) }
+  const goFocus  = (task) => navigate('/focus', { state: { task } })
+  const openEdit = (task) => setEditingTask(task)
 
   return (
     <div className="min-h-screen pb-24" style={{ background: 'radial-gradient(ellipse at top, #0d1526 0%, #0a0e1a 60%)' }}>
@@ -87,6 +83,7 @@ export default function Tasks() {
               onComplete={completeTask}
               onDelete={deleteTask}
               onFocus={goFocus}
+              onEdit={openEdit}
               onAddMedium={() => openAdd({ level: 'medium', parentId: large.id, laneId: large.laneId })}
               onAddSmall={(mediumId, laneId) => openAdd({ level: 'small', parentId: mediumId, laneId })}
             />
@@ -100,7 +97,7 @@ export default function Tasks() {
               </div>
               {orphanMedium.map(t => (
                 <MediumBlock key={t.id} medium={t} smalls={getSmallOf(t.id)}
-                  onComplete={completeTask} onDelete={deleteTask} onFocus={goFocus}
+                  onComplete={completeTask} onDelete={deleteTask} onFocus={goFocus} onEdit={openEdit}
                   onAddSmall={() => openAdd({ level: 'small', parentId: t.id, laneId: t.laneId })}
                   indent={0} />
               ))}
@@ -114,7 +111,7 @@ export default function Tasks() {
                 <AlertCircle size={11} /> 未归属小任务
               </div>
               {orphanSmall.map(t => (
-                <SmallRow key={t.id} task={t} onComplete={completeTask} onDelete={deleteTask} onFocus={goFocus} indent={0} />
+                <SmallRow key={t.id} task={t} onComplete={completeTask} onDelete={deleteTask} onFocus={goFocus} onEdit={openEdit} indent={0} />
               ))}
             </div>
           )}
@@ -134,17 +131,17 @@ export default function Tasks() {
       </div>
 
       {showAdd && (
-        <AddTaskModal
-          defaultValues={addDefault}
-          onClose={() => setShowAdd(false)}
-        />
+        <AddTaskModal defaultValues={addDefault} onClose={() => setShowAdd(false)} />
+      )}
+      {editingTask && (
+        <EditTaskModal task={editingTask} onClose={() => setEditingTask(null)} />
       )}
     </div>
   )
 }
 
 // ─── 大任务块 ──────────────────────────────────────────────
-function LargeBlock({ large, mediums, getSmallOf, onComplete, onDelete, onFocus, onAddMedium, onAddSmall }) {
+function LargeBlock({ large, mediums, getSmallOf, onComplete, onDelete, onFocus, onEdit, onAddMedium, onAddSmall }) {
   const [expanded, setExpanded] = useState(true)
   const totalSmall = mediums.reduce((s, m) => s + getSmallOf(m.id).length, 0)
   const doneSmall  = mediums.reduce((s, m) => s + getSmallOf(m.id).filter(t => t.completed).length, 0)
@@ -155,7 +152,6 @@ function LargeBlock({ large, mediums, getSmallOf, onComplete, onDelete, onFocus,
       {/* 大任务行 */}
       <div className="p-4">
         <div className="flex items-start gap-3">
-          {/* 完成圆圈 */}
           <button
             onClick={() => !large.completed && onComplete(large.id)}
             className={`mt-0.5 w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
@@ -177,7 +173,6 @@ function LargeBlock({ large, mediums, getSmallOf, onComplete, onDelete, onFocus,
             </div>
             {large.desc && <div className="text-xs text-gray-400 mt-0.5">{large.desc}</div>}
 
-            {/* 进度小结 */}
             <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
               <span>{LANES[large.laneId]?.name}</span>
               <span>·</span>
@@ -186,7 +181,6 @@ function LargeBlock({ large, mediums, getSmallOf, onComplete, onDelete, onFocus,
               {!large.completed && <><span>·</span><span className="text-purple-400">完成+10星+120元</span></>}
             </div>
 
-            {/* 进度条 */}
             {mediums.length > 0 && (
               <div className="mt-2 h-1 bg-white/10 rounded-full overflow-hidden">
                 <div className="h-full rounded-full progress-bar"
@@ -196,6 +190,11 @@ function LargeBlock({ large, mediums, getSmallOf, onComplete, onDelete, onFocus,
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
+            {!large.completed && (
+              <button onClick={() => onEdit(large)} className="p-1 text-gray-600 hover:text-purple-400 transition-colors" title="编辑">
+                <Pencil size={13} />
+              </button>
+            )}
             <button onClick={() => onDelete(large.id)} className="p-1 text-gray-600 hover:text-red-400 transition-colors">
               <Trash2 size={14} />
             </button>
@@ -217,12 +216,11 @@ function LargeBlock({ large, mediums, getSmallOf, onComplete, onDelete, onFocus,
               onComplete={onComplete}
               onDelete={onDelete}
               onFocus={onFocus}
+              onEdit={onEdit}
               onAddSmall={() => onAddSmall(medium.id, medium.laneId)}
               indent={1}
             />
           ))}
-
-          {/* 添加中任务按钮 */}
           {!large.completed && (
             <button
               onClick={onAddMedium}
@@ -238,16 +236,14 @@ function LargeBlock({ large, mediums, getSmallOf, onComplete, onDelete, onFocus,
 }
 
 // ─── 中任务块 ──────────────────────────────────────────────
-function MediumBlock({ medium, smalls, onComplete, onDelete, onFocus, onAddSmall, indent }) {
+function MediumBlock({ medium, smalls, onComplete, onDelete, onFocus, onEdit, onAddSmall, indent }) {
   const [expanded, setExpanded] = useState(true)
   const doneSmall = smalls.filter(t => t.completed).length
   const pl = indent === 1 ? 'pl-10' : 'pl-4'
 
   return (
     <div>
-      {/* 中任务行 */}
       <div className={`flex items-start gap-3 py-3 pr-4 ${pl} bg-white/[0.02] border-b border-white/5`}>
-        {/* 竖线连接 */}
         <div className="flex flex-col items-center shrink-0 mt-0.5">
           <div className="w-0.5 h-2 bg-blue-500/20" />
           <button
@@ -283,9 +279,14 @@ function MediumBlock({ medium, smalls, onComplete, onDelete, onFocus, onAddSmall
 
         <div className="flex items-center gap-1 shrink-0">
           {!medium.completed && (
-            <button onClick={() => onFocus(medium)} className="p-1 text-gray-600 hover:text-blue-400 transition-colors" title="开始专注">
-              <Timer size={13} />
-            </button>
+            <>
+              <button onClick={() => onFocus(medium)} className="p-1 text-gray-600 hover:text-blue-400 transition-colors" title="开始专注">
+                <Timer size={13} />
+              </button>
+              <button onClick={() => onEdit(medium)} className="p-1 text-gray-600 hover:text-blue-400 transition-colors" title="编辑">
+                <Pencil size={13} />
+              </button>
+            </>
           )}
           <button onClick={() => onDelete(medium.id)} className="p-1 text-gray-700 hover:text-red-400 transition-colors">
             <Trash2 size={12} />
@@ -298,12 +299,10 @@ function MediumBlock({ medium, smalls, onComplete, onDelete, onFocus, onAddSmall
         </div>
       </div>
 
-      {/* 小任务列表 */}
       {expanded && smalls.map(small => (
-        <SmallRow key={small.id} task={small} onComplete={onComplete} onDelete={onDelete} onFocus={onFocus} indent={2} />
+        <SmallRow key={small.id} task={small} onComplete={onComplete} onDelete={onDelete} onFocus={onFocus} onEdit={onEdit} indent={2} />
       ))}
 
-      {/* 添加小任务按钮 */}
       {!medium.completed && (
         <button
           onClick={onAddSmall}
@@ -317,7 +316,7 @@ function MediumBlock({ medium, smalls, onComplete, onDelete, onFocus, onAddSmall
 }
 
 // ─── 小任务行 ──────────────────────────────────────────────
-function SmallRow({ task, onComplete, onDelete, onFocus, indent }) {
+function SmallRow({ task, onComplete, onDelete, onFocus, onEdit, indent }) {
   const diffLabel = DIFFICULTY[task.difficulty || 'medium']?.label || '中等'
   const pl = indent === 2 ? 'pl-16' : indent === 1 ? 'pl-10' : 'pl-4'
 
@@ -344,13 +343,172 @@ function SmallRow({ task, onComplete, onDelete, onFocus, indent }) {
       </div>
 
       {!task.completed && (
-        <button onClick={() => onFocus(task)} className="p-1 text-gray-600 hover:text-blue-400 shrink-0 transition-colors" title="开始专注">
-          <Timer size={13} />
-        </button>
+        <>
+          <button onClick={() => onFocus(task)} className="p-1 text-gray-600 hover:text-blue-400 shrink-0 transition-colors" title="开始专注">
+            <Timer size={13} />
+          </button>
+          <button onClick={() => onEdit(task)} className="p-1 text-gray-600 hover:text-teal-400 shrink-0 transition-colors" title="编辑">
+            <Pencil size={12} />
+          </button>
+        </>
       )}
       <button onClick={() => onDelete(task.id)} className="p-1 text-gray-700 hover:text-red-400 shrink-0 transition-colors">
         <Trash2 size={11} />
       </button>
+    </div>
+  )
+}
+
+// ─── 编辑任务弹窗 ──────────────────────────────────────────
+function EditTaskModal({ task, onClose }) {
+  const { editTask, tasks } = useStore()
+  const [title,      setTitle]      = useState(task.title || '')
+  const [desc,       setDesc]       = useState(task.desc  || '')
+  const [difficulty, setDifficulty] = useState(task.difficulty || 'medium')
+  const [parentId,   setParentId]   = useState(task.parentId   || '')
+
+  const cfg = LEVEL_CONFIG[task.level]
+
+  // 父任务候选列表
+  const parentLevel   = task.level === 'medium' ? 'large' : task.level === 'small' ? 'medium' : null
+  const parentOptions = parentLevel
+    ? tasks.filter(t => !t.completed && t.level === parentLevel && t.id !== task.id)
+    : []
+
+  const handleSave = () => {
+    if (!title.trim()) return
+    const changes = { title: title.trim(), desc }
+    if (task.level !== 'large') changes.difficulty = difficulty
+    if (parentLevel)             changes.parentId   = parentId || null
+    editTask(task.id, changes)
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70" onClick={onClose}>
+      <div
+        className="w-full max-w-lg rounded-t-3xl p-5 pb-10 space-y-4 overflow-y-auto max-h-[90vh]"
+        style={{ background: 'linear-gradient(180deg, #151e30 0%, #0f1525 100%)', border: '1px solid rgba(255,255,255,0.06)' }}
+        onClick={e => e.stopPropagation()}>
+
+        <div className="w-10 h-1 bg-gray-600 rounded-full mx-auto" />
+
+        {/* 标题行 */}
+        <div className="flex items-center gap-2">
+          <span className="text-lg">{LANES[task.laneId]?.icon}</span>
+          <div>
+            <h2 className="text-base font-black">编辑{cfg.label}</h2>
+            <p className="text-[10px] text-gray-500">{LANES[task.laneId]?.name}</p>
+          </div>
+          <span className="ml-auto text-xs px-2 py-0.5 rounded-full font-bold"
+            style={{ background: `${cfg.color}18`, border: `1px solid ${cfg.color}40`, color: cfg.color }}>
+            {cfg.shortLabel}
+          </span>
+        </div>
+
+        {/* 任务名称 */}
+        <div>
+          <div className="text-xs text-gray-500 mb-2 font-medium">任务名称</div>
+          <input
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            autoFocus
+            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-blue-500/50 transition-colors"
+          />
+        </div>
+
+        {/* 备注 */}
+        <div>
+          <div className="text-xs text-gray-500 mb-2 font-medium">备注（可选）</div>
+          <input
+            value={desc}
+            onChange={e => setDesc(e.target.value)}
+            placeholder="添加备注..."
+            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-blue-500/50 transition-colors"
+          />
+        </div>
+
+        {/* 难度（大任务不设难度） */}
+        {task.level !== 'large' && (
+          <div>
+            <div className="text-xs text-gray-500 mb-2 font-medium">难度</div>
+            <div className="grid grid-cols-3 gap-2">
+              {Object.entries(DIFFICULTY).map(([k, d]) => (
+                <button key={k} onClick={() => setDifficulty(k)}
+                  className="py-2.5 rounded-xl text-center border transition-all text-sm font-bold"
+                  style={difficulty === k
+                    ? { borderColor: `${d.color}60`, backgroundColor: `${d.color}15`, color: d.color }
+                    : { borderColor: 'rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.03)', color: '#6b7280' }}>
+                  {d.label}
+                  <div className="text-[10px] font-normal opacity-70 mt-0.5">×{d.multiplier}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 移动：更换归属 */}
+        {parentLevel && (
+          <div>
+            <div className="text-xs text-gray-500 mb-2 font-medium">
+              {task.level === 'medium' ? '移动到大任务' : '移动到中任务'}
+            </div>
+            <div className="space-y-2 max-h-44 overflow-y-auto">
+              {/* 独立（无归属） */}
+              <button
+                onClick={() => setParentId('')}
+                className={`w-full text-left px-3 py-2.5 rounded-xl text-sm border transition-all ${
+                  !parentId
+                    ? 'border-gray-400/40 bg-gray-400/10 text-gray-200'
+                    : 'border-white/8 bg-white/3 text-gray-500 hover:bg-white/5'
+                }`}>
+                <div className="flex items-center gap-2">
+                  <span className="text-base">🗂</span>
+                  <span className="font-medium">独立{cfg.label}（无归属）</span>
+                  {!task.parentId && !parentId && <span className="ml-auto text-[10px] text-gray-400">当前</span>}
+                </div>
+              </button>
+
+              {parentOptions.length === 0 && (
+                <div className="px-3 py-2 text-xs text-gray-600">暂无可归属的{task.level === 'medium' ? '大任务' : '中任务'}</div>
+              )}
+
+              {parentOptions.map(p => {
+                const isCurrent = p.id === task.parentId
+                const isSelected = p.id === parentId
+                return (
+                  <button key={p.id}
+                    onClick={() => setParentId(p.id)}
+                    className={`w-full text-left px-3 py-2.5 rounded-xl text-sm border transition-all ${
+                      isSelected
+                        ? 'border-blue-500/50 bg-blue-500/12 text-blue-200'
+                        : 'border-white/8 bg-white/3 text-gray-300 hover:bg-white/6'
+                    }`}>
+                    <div className="flex items-center gap-2">
+                      <span>{LANES[p.laneId]?.icon}</span>
+                      <span className="flex-1 truncate font-medium">{p.title}</span>
+                      {isCurrent && <span className="text-[10px] text-gray-400 shrink-0">当前</span>}
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
+                        style={{ background: 'rgba(159,95,255,0.15)', color: '#9f5fff' }}>
+                        {LEVEL_CONFIG[p.level]?.shortLabel}
+                      </span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* 保存 */}
+        <button
+          onClick={handleSave}
+          disabled={!title.trim()}
+          className="w-full py-3.5 rounded-xl font-black text-base disabled:opacity-30 transition-all active:scale-98"
+          style={{ background: `linear-gradient(135deg, ${cfg.color}30, ${cfg.color}15)`, border: `1px solid ${cfg.color}50`, color: cfg.color }}>
+          保存修改
+        </button>
+      </div>
     </div>
   )
 }
@@ -366,7 +524,6 @@ function AddTaskModal({ defaultValues = {}, onClose }) {
   const [difficulty, setDifficulty] = useState('medium')
   const [parentId,   setParentId]   = useState(defaultValues.parentId || '')
 
-  // 根据当前 level 决定父任务选项
   const parentLevel   = level === 'medium' ? 'large' : level === 'small' ? 'medium' : null
   const parentOptions = parentLevel
     ? tasks.filter(t => !t.completed && t.level === parentLevel && t.laneId === laneId)
@@ -374,7 +531,6 @@ function AddTaskModal({ defaultValues = {}, onClose }) {
 
   const cfg = LEVEL_CONFIG[level]
 
-  // 当 level 或 laneId 改变时重置 parentId（如果旧的 parentId 不再适用）
   const handleLevelChange = (newLevel) => {
     setLevel(newLevel)
     setParentId(defaultValues.level === newLevel ? (defaultValues.parentId || '') : '')
@@ -387,19 +543,11 @@ function AddTaskModal({ defaultValues = {}, onClose }) {
 
   const handleSubmit = () => {
     if (!title.trim()) return
-    // 中任务必须有大任务，小任务必须有中任务（提示但不强制阻止）
-    addTask({
-      title: title.trim(),
-      desc,
-      level,
-      laneId,
-      difficulty,
-      parentId: parentId || null,
-    })
+    addTask({ title: title.trim(), desc, level, laneId, difficulty, parentId: parentId || null })
     onClose()
   }
 
-  const needsParent  = level === 'medium' || level === 'small'
+  const needsParent   = level === 'medium' || level === 'small'
   const missingParent = needsParent && !parentId && parentOptions.length > 0
 
   return (
@@ -411,7 +559,6 @@ function AddTaskModal({ defaultValues = {}, onClose }) {
 
         <div className="w-10 h-1 bg-gray-600 rounded-full mx-auto" />
 
-        {/* 标题 */}
         <div>
           <h2 className="text-lg font-black">新建任务</h2>
           <p className="text-xs text-gray-500 mt-0.5">{cfg.desc}</p>
@@ -452,7 +599,7 @@ function AddTaskModal({ defaultValues = {}, onClose }) {
           </div>
         </div>
 
-        {/* ③ 上级任务（中→选大，小→选中） */}
+        {/* ③ 上级任务 */}
         {needsParent && (
           <div>
             <div className="text-xs text-gray-500 mb-2 font-medium flex items-center gap-1">
@@ -461,7 +608,6 @@ function AddTaskModal({ defaultValues = {}, onClose }) {
             </div>
             {parentOptions.length > 0 ? (
               <div className="space-y-2 max-h-36 overflow-y-auto">
-                {/* 无归属选项 */}
                 <button
                   onClick={() => setParentId('')}
                   className={`w-full text-left px-3 py-2 rounded-xl text-sm border transition-all ${
@@ -513,7 +659,7 @@ function AddTaskModal({ defaultValues = {}, onClose }) {
           />
         </div>
 
-        {/* ⑤ 描述（可选） */}
+        {/* ⑤ 描述 */}
         <input
           value={desc}
           onChange={e => setDesc(e.target.value)}
@@ -521,7 +667,7 @@ function AddTaskModal({ defaultValues = {}, onClose }) {
           className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-blue-500/50 transition-colors"
         />
 
-        {/* ⑥ 难度（大任务不设难度） */}
+        {/* ⑥ 难度 */}
         {level !== 'large' && (
           <div>
             <div className="text-xs text-gray-500 mb-2 font-medium">难度</div>

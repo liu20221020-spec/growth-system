@@ -375,6 +375,22 @@ const useStore = create((set, get) => ({
     })
   },
 
+  editTask: (taskId, changes) => {
+    // changes 可包含: title, desc, difficulty, parentId
+    const { userId } = get()
+    if (userId) {
+      const dbChanges = {}
+      if (changes.title      !== undefined) dbChanges.title       = changes.title
+      if (changes.desc       !== undefined) dbChanges.description = changes.desc
+      if (changes.difficulty !== undefined) dbChanges.difficulty  = changes.difficulty
+      if (changes.parentId   !== undefined) dbChanges.parent_id   = changes.parentId || null
+      updateTask(taskId, dbChanges)
+    }
+    set(s => ({
+      tasks: s.tasks.map(t => t.id === taskId ? { ...t, ...changes } : t),
+    }))
+  },
+
   deleteTask: (taskId) => {
     const { userId } = get()
     if (userId) dbDeleteTask(taskId)
