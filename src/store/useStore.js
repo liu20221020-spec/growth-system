@@ -308,14 +308,26 @@ const useStore = create((set, get) => ({
   },
 
   // 放弃专注块
-  abandonFocusBlock: (laneId, tag, difficulty) => {
+  abandonFocusBlock: (laneId, tag, difficulty, elapsedMin = 0) => {
     const { userId } = get()
-    set({ focusSequence: 0 })
+    const block = {
+      id: Date.now(), laneId, tag, difficulty,
+      durationMin: elapsedMin, reward: 0, completed: false,
+      date: dayjs().format('YYYY-MM-DD HH:mm'),
+    }
+    // 更新本地 state：序列归零 + 记录放弃块
+    set(s => ({
+      focusSequence: 0,
+      focusBlocks: [block, ...s.focusBlocks].slice(0, 1000),
+    }))
+    // 写 Supabase
     if (userId) {
       upsertUser(userId, { focus_sequence: 0 })
-      insertFocusBlock(userId, { laneId, tag, difficulty, durationMin: 0, reward: 0, completed: false })
+      insertFocusBlock(userId, { laneId, tag, difficulty, durationMin: elapsedMin, reward: 0, completed: false })
     }
+    // 扣 1 星
     get().modifyLaneStars(laneId, -1)
+    get().addNotification(`❌ 放弃专注 -1星，#序列归零`)
   },
 
   // ═══════════════════════════════════════════════════════

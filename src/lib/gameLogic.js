@@ -179,10 +179,10 @@ export function getProficiencyProgress(points) {
 }
 
 // ============== 额度计算 ==============
-export function calcFocusReward(laneId, difficulty) {
+export function calcFocusReward(laneId, difficulty, durationMin = 60) {
   const lane = LANES[laneId]
   if (!lane || lane.focusPrice === 0) return 0
-  return lane.focusPrice * DIFFICULTY[difficulty].multiplier
+  return lane.focusPrice * DIFFICULTY[difficulty].multiplier * (durationMin / 60)
 }
 
 export function calcTaskReward(laneId, taskLevel, difficulty = 'medium') {

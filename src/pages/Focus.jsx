@@ -58,7 +58,8 @@ export default function Focus() {
     setNewTagInput('')
     setAddingTag(false)
   }
-  const reward = selectedLane ? calcFocusReward(selectedLane, selectedDiff) : 0
+  const modeDuration = FOCUS_MODES.find(m => m.key === selectedMode)?.duration ?? 60
+  const reward = selectedLane ? calcFocusReward(selectedLane, selectedDiff, modeDuration) : 0
   const finalReward = todayStatus === 'poor' ? Math.round(reward * 1.3) : reward
 
   useEffect(() => {
@@ -92,7 +93,10 @@ export default function Focus() {
 
   const handleAbandon = () => {
     clearInterval(timerRef.current)
-    abandonFocusBlock(selectedLane, selectedTag, selectedDiff)
+    // 计算已专注的分钟数
+    const elapsedSecs = duration * 60 - timeLeft
+    const elapsedMin = Math.max(0, Math.floor(elapsedSecs / 60))
+    abandonFocusBlock(selectedLane, selectedTag, selectedDiff, elapsedMin)
     navigate('/')
   }
 
@@ -148,7 +152,7 @@ export default function Focus() {
         style={{ background: 'radial-gradient(ellipse at center, #0d1a30 0%, #0a0e1a 70%)' }}>
         <div className="text-center mb-2">
           <div className="text-sm text-gray-400">{lane?.icon} {lane?.name} · {selectedTag}</div>
-          <div className="text-xs text-gray-500 mt-1">{DIFFICULTY[selectedDiff].label} · 预计+{finalReward.toFixed(1)}元</div>
+          <div className="text-xs text-gray-500 mt-1">{DIFFICULTY[selectedDiff].label} · {duration}分钟 · 预计+{finalReward.toFixed(1)}元</div>
         </div>
 
         {/* 圆形计时器 */}
