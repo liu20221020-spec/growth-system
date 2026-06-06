@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { ArrowLeft, Play, Square, SkipForward, Plus, Check, X } from 'lucide-react'
 import useStore from '../store/useStore'
 import { LANES, LANE_ORDER, DIFFICULTY, calcFocusReward } from '../lib/gameLogic'
@@ -13,9 +13,11 @@ const FOCUS_MODES = [
 
 export default function Focus() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const linkedTask = location.state?.task ?? null  // { id, title, laneId, difficulty, level }
   const { completeFocusBlock, abandonFocusBlock, getLaneTags, todayStatus,
           addLaneTag, removeLaneTag, addLanguage, removeLanguage, deduplicateTags,
-          languageConfig } = useStore()
+          languageConfig, completeTask } = useStore()
   const [addingTag, setAddingTag] = useState(false)
   const [editingTags, setEditingTags] = useState(false)
   const [newTagInput, setNewTagInput] = useState('')
@@ -25,9 +27,9 @@ export default function Focus() {
   useEffect(() => { deduplicateTags() }, [])
 
   const [step, setStep] = useState('select') // select | running | done
-  const [selectedLane, setSelectedLane] = useState('')
+  const [selectedLane, setSelectedLane] = useState(linkedTask?.laneId ?? '')
   const [selectedTag, setSelectedTag] = useState('')
-  const [selectedDiff, setSelectedDiff] = useState('medium')
+  const [selectedDiff, setSelectedDiff] = useState(linkedTask?.difficulty ?? 'medium')
   const [selectedMode, setSelectedMode] = useState('full')
   const [duration, setDuration] = useState(60)
   const [timeLeft, setTimeLeft] = useState(0)
@@ -134,11 +136,35 @@ export default function Focus() {
         </div>
         <div className="text-gray-400 text-sm mb-2">{lane?.name} · {selectedTag} · {DIFFICULTY[selectedDiff].label}</div>
         <div className="text-gray-500 text-xs mb-8">熟练度 +1 | #序列+1</div>
-        <button onClick={() => navigate('/')}
-          className="px-8 py-3 rounded-xl font-bold text-lg"
-          style={{ background: 'linear-gradient(135deg, #1a3a6c, #0d2448)', border: '1px solid rgba(79,158,255,0.4)' }}>
-          返回主页
-        </button>
+
+        {/* 关联任务完成询问 */}
+        {linkedTask ? (
+          <div className="w-full max-w-sm rounded-2xl p-5 mb-4"
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
+            <div className="text-xs text-gray-400 mb-1 text-center">关联任务</div>
+            <div className="text-sm font-bold text-white text-center mb-4 truncate">「{linkedTask.title}」是否完成？</div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => navigate('/tasks')}
+                className="flex-1 py-3 rounded-xl text-sm font-bold text-gray-300 transition-all active:scale-95"
+                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                今天还会再继续 →
+              </button>
+              <button
+                onClick={() => { completeTask(linkedTask.id); navigate('/tasks') }}
+                className="flex-1 py-3 rounded-xl text-sm font-black text-white transition-all active:scale-95"
+                style={{ background: 'linear-gradient(135deg, #1a4a2c, #0d2418)', border: '1px solid rgba(0,212,170,0.4)' }}>
+                已完成 ✓
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => navigate('/')}
+            className="px-8 py-3 rounded-xl font-bold text-lg"
+            style={{ background: 'linear-gradient(135deg, #1a3a6c, #0d2448)', border: '1px solid rgba(79,158,255,0.4)' }}>
+            返回主页
+          </button>
+        )}
       </div>
     )
   }
@@ -200,9 +226,21 @@ export default function Focus() {
     <div className="min-h-screen pb-24" style={{ background: 'radial-gradient(ellipse at top, #0d1526 0%, #0a0e1a 60%)' }}>
       <div className="px-4 pt-12 pb-4">
         <div className="flex items-center gap-3 mb-6">
-          <button onClick={() => navigate('/')}><ArrowLeft size={20} className="text-gray-400" /></button>
+          <button onClick={() => navigate(-1)}><ArrowLeft size={20} className="text-gray-400" /></button>
           <h1 className="text-xl font-black">开始专注</h1>
         </div>
+
+        {/* 关联任务提示 */}
+        {linkedTask && (
+          <div className="mb-5 px-3 py-2.5 rounded-xl flex items-center gap-2 text-sm"
+            style={{ background: 'rgba(79,158,255,0.08)', border: '1px solid rgba(79,158,255,0.2)' }}>
+            <span className="text-lg">{LANES[linkedTask.laneId]?.icon}</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] text-blue-400/70 mb-0.5">关联任务</div>
+              <div className="text-xs font-bold text-blue-200 truncate">{linkedTask.title}</div>
+            </div>
+          </div>
+        )}
 
         {/* 专注模式 */}
         <section className="mb-6">

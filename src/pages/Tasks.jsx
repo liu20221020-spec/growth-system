@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Plus, ChevronRight, ChevronDown, Check, Trash2, AlertCircle } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Plus, ChevronRight, ChevronDown, Check, Trash2, AlertCircle, Timer } from 'lucide-react'
 import useStore from '../store/useStore'
 import { LANES, LANE_ORDER, DIFFICULTY } from '../lib/gameLogic'
 
@@ -12,6 +13,7 @@ const LEVEL_CONFIG = {
 
 // ─── 主页面 ────────────────────────────────────────────────
 export default function Tasks() {
+  const navigate = useNavigate()
   const { tasks, completeTask, deleteTask } = useStore()
   const [showAdd, setShowAdd] = useState(false)
   const [addDefault, setAddDefault] = useState({}) // 预填 level/parentId
@@ -31,6 +33,8 @@ export default function Tasks() {
   const orphanSmall  = tasks.filter(t => t.level === 'small'  && !t.parentId && (filter === 'active' ? isActive(t) : t.completed))
 
   const openAdd = (defaults = {}) => { setAddDefault(defaults); setShowAdd(true) }
+
+  const goFocus = (task) => navigate('/focus', { state: { task } })
 
   return (
     <div className="min-h-screen pb-24" style={{ background: 'radial-gradient(ellipse at top, #0d1526 0%, #0a0e1a 60%)' }}>
@@ -82,6 +86,7 @@ export default function Tasks() {
               getSmallOf={getSmallOf}
               onComplete={completeTask}
               onDelete={deleteTask}
+              onFocus={goFocus}
               onAddMedium={() => openAdd({ level: 'medium', parentId: large.id, laneId: large.laneId })}
               onAddSmall={(mediumId, laneId) => openAdd({ level: 'small', parentId: mediumId, laneId })}
             />
@@ -95,7 +100,7 @@ export default function Tasks() {
               </div>
               {orphanMedium.map(t => (
                 <MediumBlock key={t.id} medium={t} smalls={getSmallOf(t.id)}
-                  onComplete={completeTask} onDelete={deleteTask}
+                  onComplete={completeTask} onDelete={deleteTask} onFocus={goFocus}
                   onAddSmall={() => openAdd({ level: 'small', parentId: t.id, laneId: t.laneId })}
                   indent={0} />
               ))}
@@ -109,7 +114,7 @@ export default function Tasks() {
                 <AlertCircle size={11} /> 未归属小任务
               </div>
               {orphanSmall.map(t => (
-                <SmallRow key={t.id} task={t} onComplete={completeTask} onDelete={deleteTask} indent={0} />
+                <SmallRow key={t.id} task={t} onComplete={completeTask} onDelete={deleteTask} onFocus={goFocus} indent={0} />
               ))}
             </div>
           )}
@@ -139,7 +144,7 @@ export default function Tasks() {
 }
 
 // ─── 大任务块 ──────────────────────────────────────────────
-function LargeBlock({ large, mediums, getSmallOf, onComplete, onDelete, onAddMedium, onAddSmall }) {
+function LargeBlock({ large, mediums, getSmallOf, onComplete, onDelete, onFocus, onAddMedium, onAddSmall }) {
   const [expanded, setExpanded] = useState(true)
   const totalSmall = mediums.reduce((s, m) => s + getSmallOf(m.id).length, 0)
   const doneSmall  = mediums.reduce((s, m) => s + getSmallOf(m.id).filter(t => t.completed).length, 0)
@@ -211,6 +216,7 @@ function LargeBlock({ large, mediums, getSmallOf, onComplete, onDelete, onAddMed
               smalls={getSmallOf(medium.id)}
               onComplete={onComplete}
               onDelete={onDelete}
+              onFocus={onFocus}
               onAddSmall={() => onAddSmall(medium.id, medium.laneId)}
               indent={1}
             />
@@ -232,7 +238,7 @@ function LargeBlock({ large, mediums, getSmallOf, onComplete, onDelete, onAddMed
 }
 
 // ─── 中任务块 ──────────────────────────────────────────────
-function MediumBlock({ medium, smalls, onComplete, onDelete, onAddSmall, indent }) {
+function MediumBlock({ medium, smalls, onComplete, onDelete, onFocus, onAddSmall, indent }) {
   const [expanded, setExpanded] = useState(true)
   const doneSmall = smalls.filter(t => t.completed).length
   const pl = indent === 1 ? 'pl-10' : 'pl-4'
@@ -276,6 +282,11 @@ function MediumBlock({ medium, smalls, onComplete, onDelete, onAddSmall, indent 
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
+          {!medium.completed && (
+            <button onClick={() => onFocus(medium)} className="p-1 text-gray-600 hover:text-blue-400 transition-colors" title="开始专注">
+              <Timer size={13} />
+            </button>
+          )}
           <button onClick={() => onDelete(medium.id)} className="p-1 text-gray-700 hover:text-red-400 transition-colors">
             <Trash2 size={12} />
           </button>
@@ -289,7 +300,7 @@ function MediumBlock({ medium, smalls, onComplete, onDelete, onAddSmall, indent 
 
       {/* 小任务列表 */}
       {expanded && smalls.map(small => (
-        <SmallRow key={small.id} task={small} onComplete={onComplete} onDelete={onDelete} indent={2} />
+        <SmallRow key={small.id} task={small} onComplete={onComplete} onDelete={onDelete} onFocus={onFocus} indent={2} />
       ))}
 
       {/* 添加小任务按钮 */}
@@ -306,7 +317,7 @@ function MediumBlock({ medium, smalls, onComplete, onDelete, onAddSmall, indent 
 }
 
 // ─── 小任务行 ──────────────────────────────────────────────
-function SmallRow({ task, onComplete, onDelete, indent }) {
+function SmallRow({ task, onComplete, onDelete, onFocus, indent }) {
   const diffLabel = DIFFICULTY[task.difficulty || 'medium']?.label || '中等'
   const pl = indent === 2 ? 'pl-16' : indent === 1 ? 'pl-10' : 'pl-4'
 
@@ -332,6 +343,11 @@ function SmallRow({ task, onComplete, onDelete, indent }) {
         )}
       </div>
 
+      {!task.completed && (
+        <button onClick={() => onFocus(task)} className="p-1 text-gray-600 hover:text-blue-400 shrink-0 transition-colors" title="开始专注">
+          <Timer size={13} />
+        </button>
+      )}
       <button onClick={() => onDelete(task.id)} className="p-1 text-gray-700 hover:text-red-400 shrink-0 transition-colors">
         <Trash2 size={11} />
       </button>
