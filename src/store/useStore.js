@@ -265,10 +265,20 @@ const useStore = create((set, get) => ({
   // ═══════════════════════════════════════════════════════
   // 完成专注块
   // ═══════════════════════════════════════════════════════
-  completeFocusBlock: (laneId, tag, difficulty, durationMin = 60) => {
+  completeFocusBlock: (laneId, tag, difficulty, durationMin = 60, modeKey = 'full') => {
     const { todayStatus, userId } = get()
-    let reward = calcFocusReward(laneId, difficulty)
+
+    // 按实际时长计算奖励（修复bug：之前忘记传 durationMin）
+    let reward = calcFocusReward(laneId, difficulty, durationMin)
     if (todayStatus === 'poor') reward = Math.round(reward * 1.3)
+
+    // 各模式对应序列块增量
+    const SEQ_INCR = { scout: 0.1, short: 0.5, full: 1.0, ultra: 1.5 }
+    const seqIncr  = SEQ_INCR[modeKey] ?? (durationMin / 60)
+
+    // 各模式显示名称 & emoji（用于账本描述）
+    const MODE_LABEL = { full: '🔥完整专注', short: '⚡短暂专注', scout: '🔍侦察任务', ultra: '💎超强专注' }
+    const modeLabel  = MODE_LABEL[modeKey] || '专注块'
 
     // 更新熟练度
     const profKey = `${laneId}:${tag}`
@@ -276,24 +286,29 @@ const useStore = create((set, get) => ({
     if (userId) upsertTag(userId, laneId, tag, newPoints)
 
     set(s => {
-      const newSeq = s.focusSequence + 1
-      // 序列里程碑
+      const prevSeq = s.focusSequence
+      const newSeq  = +((prevSeq + seqIncr).toFixed(1))
+
+      // 序列里程碑（用阈值穿越判断，兼容小数序列）
       let seqBonus = 0
-      if (newSeq === 5)  seqBonus = 10
-      if (newSeq === 10) seqBonus = 25
-      if (newSeq === 20) seqBonus = 60
-      if (newSeq === 30) seqBonus = 100
+      for (const [threshold, bonus] of [[5,10],[10,25],[20,60],[30,100]]) {
+        if (prevSeq < threshold && newSeq >= threshold) { seqBonus = bonus; break }
+      }
       const totalReward = reward + seqBonus
 
-      const block = { id: Date.now(), laneId, tag, difficulty, durationMin, reward, completed: true, date: dayjs().format('YYYY-MM-DD HH:mm') }
+      const block = {
+        id: Date.now(), laneId, tag, difficulty, durationMin, modeKey,
+        reward, completed: true, date: dayjs().format('YYYY-MM-DD HH:mm'),
+      }
 
       if (seqBonus > 0) setTimeout(() => get().addNotification(`#序列里程碑 #${newSeq}！+${seqBonus}元`), 100)
 
       const newBalance = s.balance + totalReward
+      const desc = `${modeLabel}·${LANES[laneId]?.name}·${tag}`
       if (userId) {
         insertFocusBlock(userId, { laneId, tag, difficulty, durationMin, reward, completed: true })
         upsertUser(userId, { balance: newBalance, focus_sequence: newSeq })
-        insertTransaction(userId, { desc: `专注块·${LANES[laneId]?.name}·${tag}`, amount: totalReward, type: '专注块', balance: newBalance })
+        insertTransaction(userId, { desc, amount: totalReward, type: '专注', balance: newBalance })
       }
 
       return {
@@ -304,7 +319,7 @@ const useStore = create((set, get) => ({
         focusBlocks: [block, ...s.focusBlocks].slice(0, 1000),
       }
     })
-    get().addLedger(`专注块·${LANES[laneId]?.name}·${tag}`, reward, '专注块')
+    get().addLedger(`${modeLabel}·${LANES[laneId]?.name}·${tag}`, reward, '专注')
   },
 
   // 放弃专注块

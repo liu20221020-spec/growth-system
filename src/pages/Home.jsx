@@ -131,7 +131,7 @@ export default function Home() {
             </span>
             <span className="flex items-center gap-1">
               <Hash size={12} className="text-blue-400" />
-              序列#{focusSequence}
+              序列#{Number.isInteger(focusSequence) ? focusSequence : focusSequence.toFixed(1)}
             </span>
             <span className="flex items-center gap-1">
               <Flame size={12} className="text-orange-400" />

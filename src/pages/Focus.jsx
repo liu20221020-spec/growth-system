@@ -5,10 +5,10 @@ import useStore from '../store/useStore'
 import { LANES, LANE_ORDER, DIFFICULTY, calcFocusReward } from '../lib/gameLogic'
 
 const FOCUS_MODES = [
-  { key: 'full', label: '完整专注', duration: 60, icon: '🔥', desc: '60分钟深度专注' },
-  { key: 'short', label: '短暂专注', duration: 25, icon: '⚡', desc: '25分钟番茄钟' },
-  { key: 'scout', label: '侦察任务', duration: 5, icon: '🔍', desc: '5分钟快速探索' },
-  { key: 'book', label: '预约模式', duration: 15, icon: '📅', desc: '15分钟预约倒计时' },
+  { key: 'full',  label: '完整专注', duration: 60, icon: '🔥', desc: '60分钟深度专注',  seqIncr: 1.0 },
+  { key: 'short', label: '短暂专注', duration: 25, icon: '⚡', desc: '25分钟番茄钟',    seqIncr: 0.5 },
+  { key: 'scout', label: '侦察任务', duration: 5,  icon: '🔍', desc: '5分钟快速探索',   seqIncr: 0.1 },
+  { key: 'ultra', label: '超强专注', duration: 90, icon: '💎', desc: '90分钟超强专注',  seqIncr: 1.5 },
 ]
 
 const SESSION_KEY = 'focus_active_session'
@@ -154,6 +154,7 @@ export default function Focus() {
     // 持久化会话，防止页面被 kill
     saveSession({
       selectedLane, selectedTag, selectedDiff, selectedMode,
+      modeKey: mode.key,
       duration: mins,
       startTime: startTimeRef.current,
       totalPaused: 0,
@@ -166,7 +167,7 @@ export default function Focus() {
   const handleComplete = () => {
     clearInterval(timerRef.current)
     clearSession()
-    completeFocusBlock(selectedLane, selectedTag, selectedDiff, duration)
+    completeFocusBlock(selectedLane, selectedTag, selectedDiff, duration, selectedMode)
     setStep('done')
   }
 
@@ -189,7 +190,7 @@ export default function Focus() {
       }
       // 更新持久化
       saveSession({
-        selectedLane, selectedTag, selectedDiff, selectedMode,
+        selectedLane, selectedTag, selectedDiff, selectedMode, modeKey: selectedMode,
         duration, startTime: startTimeRef.current,
         totalPaused: totalPausedRef.current,
         isPaused: false, linkedTask,
@@ -200,7 +201,7 @@ export default function Focus() {
       clearInterval(timerRef.current)
       pauseStartRef.current = Date.now()
       saveSession({
-        selectedLane, selectedTag, selectedDiff, selectedMode,
+        selectedLane, selectedTag, selectedDiff, selectedMode, modeKey: selectedMode,
         duration, startTime: startTimeRef.current,
         totalPaused: totalPausedRef.current,
         isPaused: true, linkedTask,
