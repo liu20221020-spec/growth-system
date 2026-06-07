@@ -123,14 +123,26 @@ const useStore = create((set, get) => ({
         date: dayjs(t.created_at).format('YYYY-MM-DD HH:mm'), type: 'expense',
       }))
 
+    // ── 从 transactions 实时计算余额（防止 upsertUser 失败导致不一致）
+    const computedBalance = (transData || []).reduce((sum, t) => sum + (t.amount || 0), 0)
+
+    // ── 从 transactions 实时计算连续签到天数
+    const activeDates = new Set((transData || []).filter(t => t.amount > 0).map(t => dayjs(t.created_at).format('YYYY-MM-DD')))
+    let computedStreak = 0
+    for (let i = 0; i < 366; i++) {
+      const d = dayjs().subtract(i, 'day').format('YYYY-MM-DD')
+      if (activeDates.has(d)) computedStreak++
+      else break
+    }
+
     const laneTags = userData.lane_tags || get().laneTags
 
     set({
       userId,
       username: userData.username || '勇士',
-      balance: userData.balance || 0,
+      balance: computedBalance,
       focusSequence: userData.focus_sequence || 0,
-      streakDays: userData.streak_days || 0,
+      streakDays: computedStreak,
       lastSignDate: userData.last_sign_date,
       lastMonthlyBonus: userData.last_monthly_bonus,
       todayStatus: userData.today_status,
@@ -266,9 +278,10 @@ const useStore = create((set, get) => ({
   // 完成专注块
   // ═══════════════════════════════════════════════════════
   completeFocusBlock: (laneId, tag, difficulty, durationMin = 60, modeKey = 'full') => {
-    const { todayStatus, userId } = get()
+    const s0 = get()
+    const { todayStatus, userId } = s0
 
-    // 按实际时长计算奖励（修复bug：之前忘记传 durationMin）
+    // 按实际时长计算奖励
     let reward = calcFocusReward(laneId, difficulty, durationMin)
     if (todayStatus === 'poor') reward = Math.round(reward * 1.3)
 
@@ -280,46 +293,48 @@ const useStore = create((set, get) => ({
     const MODE_LABEL = { full: '🔥完整专注', short: '⚡短暂专注', scout: '🔍侦察任务', ultra: '💎超强专注' }
     const modeLabel  = MODE_LABEL[modeKey] || '专注块'
 
+    // 序列计算（用当前 state 值）
+    const prevSeq   = s0.focusSequence
+    const newSeq    = +((prevSeq + seqIncr).toFixed(1))
+
+    // 序列里程碑
+    let seqBonus = 0
+    for (const [threshold, bonus] of [[5,10],[10,25],[20,60],[30,100]]) {
+      if (prevSeq < threshold && newSeq >= threshold) { seqBonus = bonus; break }
+    }
+    const totalReward = reward + seqBonus
+    const newBalance  = s0.balance + totalReward
+
     // 更新熟练度
-    const profKey = `${laneId}:${tag}`
-    const newPoints = (get().proficiency[profKey] || 0) + 1
-    if (userId) upsertTag(userId, laneId, tag, newPoints)
+    const profKey   = `${laneId}:${tag}`
+    const newPoints = (s0.proficiency[profKey] || 0) + 1
 
-    set(s => {
-      const prevSeq = s.focusSequence
-      const newSeq  = +((prevSeq + seqIncr).toFixed(1))
+    const block = {
+      id: Date.now(), laneId, tag, difficulty, durationMin, modeKey,
+      reward, completed: true, date: dayjs().format('YYYY-MM-DD HH:mm'),
+    }
+    const desc = `${modeLabel}·${LANES[laneId]?.name}·${tag}`
 
-      // 序列里程碑（用阈值穿越判断，兼容小数序列）
-      let seqBonus = 0
-      for (const [threshold, bonus] of [[5,10],[10,25],[20,60],[30,100]]) {
-        if (prevSeq < threshold && newSeq >= threshold) { seqBonus = bonus; break }
-      }
-      const totalReward = reward + seqBonus
+    // ① 先更新本地 state
+    set(s => ({
+      proficiency:   { ...s.proficiency, [profKey]: newPoints },
+      focusSequence: newSeq,
+      balance:       newBalance,
+      todayEarned:   s.todayEarned + totalReward,
+      focusBlocks:   [block, ...s.focusBlocks].slice(0, 1000),
+    }))
 
-      const block = {
-        id: Date.now(), laneId, tag, difficulty, durationMin, modeKey,
-        reward, completed: true, date: dayjs().format('YYYY-MM-DD HH:mm'),
-      }
+    // ② 再写 Supabase（移出 set() 避免回调执行不可靠）
+    if (userId) {
+      upsertTag(userId, laneId, tag, newPoints)
+      upsertUser(userId, { balance: newBalance, focus_sequence: newSeq })
+      insertFocusBlock(userId, { laneId, tag, difficulty, durationMin, reward, completed: true })
+      insertTransaction(userId, { desc, amount: totalReward, type: '专注', balance: newBalance })
+    }
 
-      if (seqBonus > 0) setTimeout(() => get().addNotification(`#序列里程碑 #${newSeq}！+${seqBonus}元`), 100)
-
-      const newBalance = s.balance + totalReward
-      const desc = `${modeLabel}·${LANES[laneId]?.name}·${tag}`
-      if (userId) {
-        insertFocusBlock(userId, { laneId, tag, difficulty, durationMin, reward, completed: true })
-        upsertUser(userId, { balance: newBalance, focus_sequence: newSeq })
-        insertTransaction(userId, { desc, amount: totalReward, type: '专注', balance: newBalance })
-      }
-
-      return {
-        proficiency: { ...s.proficiency, [profKey]: newPoints },
-        focusSequence: newSeq,
-        balance: newBalance,
-        todayEarned: s.todayEarned + totalReward,
-        focusBlocks: [block, ...s.focusBlocks].slice(0, 1000),
-      }
-    })
-    get().addLedger(`${modeLabel}·${LANES[laneId]?.name}·${tag}`, reward, '专注')
+    // ③ 本地账本 & 通知
+    get().addLedger(desc, totalReward, '专注')
+    if (seqBonus > 0) setTimeout(() => get().addNotification(`#序列里程碑 #${newSeq}！+${seqBonus}元`), 100)
   },
 
   // 放弃专注块
@@ -360,56 +375,62 @@ const useStore = create((set, get) => ({
   },
 
   completeTask: (taskId) => {
-    set(s => {
-      const task = s.tasks.find(t => t.id === taskId)
-      if (!task || task.completed) return {}
+    const s0 = get()
+    const task = s0.tasks.find(t => t.id === taskId)
+    if (!task || task.completed) return
 
-      // 大任务完成时统计子任务数
-      let mediumUsed = 0, smallUsed = 0
+    // 大任务完成时统计子任务数
+    let mediumUsed = 0, smallUsed = 0
+    if (task.level === 'large') {
+      const mediums = s0.tasks.filter(t => t.level === 'medium' && t.parentId === taskId)
+      mediumUsed = mediums.length
+      smallUsed  = s0.tasks.filter(t => t.level === 'small' && mediums.some(m => m.id === t.parentId)).length
+    }
+
+    // 所有层级都给钱；小任务+1星，中+3星，大+10星
+    const reward      = calcTaskReward(task.laneId, task.level, task.difficulty || 'medium')
+    const starGain    = task.level === 'small' ? 1 : task.level === 'medium' ? 3 : 10
+    const finalReward = (reward > 0 && s0.todayStatus === 'poor') ? Math.round(reward * 1.3) : reward
+    const newBalance  = s0.balance + finalReward
+    const completedAt = dayjs().format('YYYY-MM-DD HH:mm')
+    const { userId }  = s0
+
+    // ① 先更新本地 state
+    set(s => ({
+      balance:     newBalance,
+      todayEarned: s.todayEarned + finalReward,
+      tasks: s.tasks.map(t => t.id === taskId
+        ? { ...t, completed: true, completedAt, mediumUsed, smallUsed }
+        : t),
+    }))
+
+    // ② 再写 Supabase（移出 set() 避免回调执行不可靠）
+    if (userId) {
+      updateTask(taskId, { completed: true, completed_at: new Date().toISOString() })
+      if (finalReward > 0) {
+        upsertUser(userId, { balance: newBalance })
+        insertTransaction(userId, {
+          desc: `完成${task.level === 'small'?'小':task.level==='medium'?'中':'大'}任务·${LANES[task.laneId]?.name}`,
+          amount: finalReward, type: '任务', balance: newBalance,
+        })
+      }
+    }
+
+    // ③ 本地账本 & 通知
+    if (finalReward > 0) get().addLedger(`完成${task.level === 'small'?'小':task.level==='medium'?'中':'大'}任务·${LANES[task.laneId]?.name}`, finalReward, '任务')
+    setTimeout(() => {
+      get().modifyLaneStars(task.laneId, starGain)
       if (task.level === 'large') {
-        const mediums = s.tasks.filter(t => t.level === 'medium' && t.parentId === taskId)
-        mediumUsed = mediums.length
-        smallUsed  = s.tasks.filter(t => t.level === 'small' && mediums.some(m => m.id === t.parentId)).length
+        const parts = []
+        if (mediumUsed > 0) parts.push(`##${mediumUsed}`)
+        if (smallUsed  > 0) parts.push(`#${smallUsed}`)
+        get().addNotification(`###1 大任务完成！${parts.length ? '使用了 '+parts.join(' ')+'　' : ''}+${finalReward}元 +${starGain}星`)
+      } else if (task.level === 'medium') {
+        get().addNotification(`##1 中任务完成！+${starGain}星 +${finalReward}元`)
+      } else {
+        get().addNotification(`#1 小任务完成！+1星 +${finalReward}元`)
       }
-
-      // 所有层级都给钱；小任务+1星，中+3星，大+10星
-      const reward   = calcTaskReward(task.laneId, task.level, task.difficulty || 'medium')
-      const starGain = task.level === 'small' ? 1 : task.level === 'medium' ? 3 : 10
-      const finalReward = (reward > 0 && s.todayStatus === 'poor') ? Math.round(reward * 1.3) : reward
-      const newBalance = s.balance + finalReward
-
-      const { userId } = get()
-      if (userId) {
-        updateTask(taskId, { completed: true, completed_at: new Date().toISOString() })
-        if (finalReward > 0) {
-          upsertUser(userId, { balance: newBalance })
-          insertTransaction(userId, { desc: `完成${task.level === 'small'?'小':task.level==='medium'?'中':'大'}任务·${LANES[task.laneId]?.name}`, amount: finalReward, type: '任务', balance: newBalance })
-        }
-      }
-
-      setTimeout(() => {
-        get().modifyLaneStars(task.laneId, starGain)
-        if (task.level === 'large') {
-          const parts = []
-          if (mediumUsed > 0) parts.push(`##${mediumUsed}`)
-          if (smallUsed  > 0) parts.push(`#${smallUsed}`)
-          get().addNotification(`###1 大任务完成！${parts.length ? '使用了 '+parts.join(' ')+'　' : ''}+${finalReward}元 +${starGain}星`)
-        } else if (task.level === 'medium') {
-          get().addNotification(`##1 中任务完成！+${starGain}星 +${finalReward}元`)
-        } else {
-          get().addNotification(`#1 小任务完成！+1星 +${finalReward}元`)
-        }
-      }, 100)
-
-      const completedAt = dayjs().format('YYYY-MM-DD HH:mm')
-      return {
-        balance: newBalance,
-        todayEarned: s.todayEarned + finalReward,
-        tasks: s.tasks.map(t => t.id === taskId
-          ? { ...t, completed: true, completedAt, mediumUsed, smallUsed }
-          : t),
-      }
-    })
+    }, 100)
   },
 
   editTask: (taskId, changes) => {
