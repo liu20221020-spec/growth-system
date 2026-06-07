@@ -348,9 +348,10 @@ const useStore = create((set, get) => ({
     set(s => {
       const task = s.tasks.find(t => t.id === taskId)
       if (!task || task.completed) return {}
-      const reward = calcTaskReward(task.laneId, task.level, task.difficulty || 'medium')
+      // 小任务只加星，不加钱
+      const reward = task.level === 'small' ? 0 : calcTaskReward(task.laneId, task.level, task.difficulty || 'medium')
       const starGain = task.level === 'small' ? 1 : task.level === 'medium' ? 3 : 10
-      const finalReward = s.todayStatus === 'poor' ? Math.round(reward * 1.3) : reward
+      const finalReward = (reward > 0 && s.todayStatus === 'poor') ? Math.round(reward * 1.3) : reward
       const newBalance = s.balance + finalReward
 
       const { userId } = get()
@@ -364,7 +365,10 @@ const useStore = create((set, get) => ({
 
       setTimeout(() => {
         get().modifyLaneStars(task.laneId, starGain)
-        if (finalReward > 0) get().addNotification(`✅ 任务完成！+${finalReward}元 +${starGain}星`)
+        if (finalReward > 0)
+          get().addNotification(`✅ 任务完成！+${finalReward}元 +${starGain}星`)
+        else
+          get().addNotification(`✅ 小任务完成！+${starGain}星`)
       }, 100)
 
       return {

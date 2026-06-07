@@ -11,10 +11,32 @@ const FOCUS_MODES = [
   { key: 'book', label: '预约模式', duration: 15, icon: '📅', desc: '15分钟预约倒计时' },
 ]
 
+const SESSION_KEY = 'focus_active_session'
+
+function saveSession(data) {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(data)) } catch (_) {}
+}
+function loadSession() {
+  try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null') } catch (_) { return null }
+}
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY) } catch (_) {}
+}
+
 export default function Focus() {
   const navigate = useNavigate()
   const location = useLocation()
-  const linkedTask = location.state?.task ?? null  // { id, title, laneId, difficulty, level }
+
+  // ── 尝试从 localStorage 恢复会话（页面被 kill 后重新进入）──
+  const savedSession = loadSession()
+  const hasValid = !!(savedSession && (() => {
+    const elapsed = Date.now() - savedSession.startTime - savedSession.totalPaused
+    return elapsed < savedSession.duration * 60 * 1000  // 还没超时
+  })())
+
+  // 优先从持久化 session 恢复 linkedTask（location.state 在页面重开后会丢失）
+  const linkedTask = (hasValid && savedSession.linkedTask) ? savedSession.linkedTask : (location.state?.task ?? null)
+
   const { completeFocusBlock, abandonFocusBlock, getLaneTags, todayStatus,
           addLaneTag, removeLaneTag, addLanguage, removeLanguage, deduplicateTags,
           languageConfig, completeTask } = useStore()
@@ -26,18 +48,25 @@ export default function Focus() {
   // 首次渲染时清理重复标签
   useEffect(() => { deduplicateTags() }, [])
 
-  const [step, setStep] = useState('select') // select | running | done
-  const [selectedLane, setSelectedLane] = useState(linkedTask?.laneId ?? '')
-  const [selectedTag, setSelectedTag] = useState('')
-  const [selectedDiff, setSelectedDiff] = useState(linkedTask?.difficulty ?? 'medium')
-  const [selectedMode, setSelectedMode] = useState('full')
-  const [duration, setDuration] = useState(60)
-  const [timeLeft, setTimeLeft] = useState(0)
-  const [isPaused, setIsPaused] = useState(false)
-  const timerRef = useRef(null)
-  const startTimeRef = useRef(null)   // Date.now() when focus started
-  const pauseStartRef = useRef(null)  // Date.now() when current pause began
-  const totalPausedRef = useRef(0)    // total ms spent paused
+  const [step, setStep] = useState(hasValid ? 'running' : 'select')
+  const [selectedLane, setSelectedLane] = useState(hasValid ? savedSession.selectedLane : (linkedTask?.laneId ?? ''))
+  const [selectedTag,  setSelectedTag]  = useState(hasValid ? savedSession.selectedTag  : '')
+  const [selectedDiff, setSelectedDiff] = useState(hasValid ? savedSession.selectedDiff : (linkedTask?.difficulty ?? 'medium'))
+  const [selectedMode, setSelectedMode] = useState(hasValid ? savedSession.selectedMode : 'full')
+  const [duration,     setDuration]     = useState(hasValid ? savedSession.duration     : 60)
+  const [isPaused,     setIsPaused]     = useState(hasValid ? savedSession.isPaused     : false)
+
+  const totalSecs0  = hasValid ? savedSession.duration * 60 : 60 * 60
+  const elapsed0    = hasValid ? Date.now() - savedSession.startTime - savedSession.totalPaused : 0
+  const [timeLeft,  setTimeLeft]  = useState(hasValid ? Math.max(0, totalSecs0 - Math.floor(elapsed0 / 1000)) : 0)
+
+  const timerRef       = useRef(null)
+  const startTimeRef   = useRef(hasValid ? savedSession.startTime   : null)
+  const pauseStartRef  = useRef(hasValid && savedSession.isPaused ? Date.now() : null)
+  const totalPausedRef = useRef(hasValid ? savedSession.totalPaused : 0)
+
+  // 恢复后自动继续计时（非暂停状态）
+  const restoredRef = useRef(false)
 
   const lane = LANES[selectedLane]
   const tags = selectedLane ? getLaneTags(selectedLane) : []
@@ -85,6 +114,13 @@ export default function Focus() {
   }
 
   useEffect(() => {
+    // 恢复会话：自动继续计时
+    if (hasValid && !restoredRef.current) {
+      restoredRef.current = true
+      if (!savedSession.isPaused) {
+        startTick(savedSession.duration * 60)
+      }
+    }
     return () => clearInterval(timerRef.current)
   }, [])
 
@@ -115,17 +151,28 @@ export default function Focus() {
     totalPausedRef.current = 0
     pauseStartRef.current = null
     setStep('running')
+    // 持久化会话，防止页面被 kill
+    saveSession({
+      selectedLane, selectedTag, selectedDiff, selectedMode,
+      duration: mins,
+      startTime: startTimeRef.current,
+      totalPaused: 0,
+      isPaused: false,
+      linkedTask,
+    })
     startTick(totalSecs)
   }
 
   const handleComplete = () => {
     clearInterval(timerRef.current)
+    clearSession()
     completeFocusBlock(selectedLane, selectedTag, selectedDiff, duration)
     setStep('done')
   }
 
   const handleAbandon = () => {
     clearInterval(timerRef.current)
+    clearSession()
     const elapsedSecs = duration * 60 - timeLeft
     const elapsedMin = Math.max(0, Math.floor(elapsedSecs / 60))
     abandonFocusBlock(selectedLane, selectedTag, selectedDiff, elapsedMin)
@@ -140,11 +187,24 @@ export default function Focus() {
         totalPausedRef.current += Date.now() - pauseStartRef.current
         pauseStartRef.current = null
       }
+      // 更新持久化
+      saveSession({
+        selectedLane, selectedTag, selectedDiff, selectedMode,
+        duration, startTime: startTimeRef.current,
+        totalPaused: totalPausedRef.current,
+        isPaused: false, linkedTask,
+      })
       startTick(totalSecs)
     } else {
       // 暂停：记录暂停开始时间
       clearInterval(timerRef.current)
       pauseStartRef.current = Date.now()
+      saveSession({
+        selectedLane, selectedTag, selectedDiff, selectedMode,
+        duration, startTime: startTimeRef.current,
+        totalPaused: totalPausedRef.current,
+        isPaused: true, linkedTask,
+      })
     }
     setIsPaused(!isPaused)
   }
