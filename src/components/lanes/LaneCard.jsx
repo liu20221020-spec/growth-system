@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom'
+import useStore from '../../store/useStore'
 import RankBadge, { StarRow } from '../ui/RankBadge'
 import { getRankFromTotalStars, RANKS } from '../../lib/gameLogic'
 
@@ -9,6 +10,7 @@ const TIER_COLORS = {
 
 export default function LaneCard({ lane, data, tasks = [] }) {
   const navigate = useNavigate()
+  const laneSeq = useStore(s => s.laneSequence[lane.id] || 0)
   const { rank, starsInDiv } = getRankFromTotalStars(data.totalStars || 0)
   const color = TIER_COLORS[rank.tier]
 
@@ -51,15 +53,21 @@ export default function LaneCard({ lane, data, tasks = [] }) {
         </div>
         <div className="flex items-center justify-between text-[10px] text-gray-500">
           <span>{rank.name}</span>
-          {hasAnyTask ? (
-            <span className="flex items-center gap-1.5 font-mono" style={{ color: `${color}bb` }}>
-              {largeDone  > 0 && <span><span className="opacity-60">###</span>{largeDone}</span>}
-              {mediumDone > 0 && <span><span className="opacity-60">##</span>{mediumDone}</span>}
-              {smallDone  > 0 && <span><span className="opacity-60">#</span>{smallDone}</span>}
-            </span>
-          ) : (
-            <span>{data.totalStars || 0}总星</span>
-          )}
+          <span className="flex items-center gap-2">
+            {laneSeq > 0 && (
+              <span style={{ color: '#4f9eff99' }}>
+                ⚡{Number.isInteger(laneSeq) ? laneSeq : laneSeq.toFixed(1)}
+              </span>
+            )}
+            {hasAnyTask && (
+              <span className="flex items-center gap-1 font-mono" style={{ color: `${color}bb` }}>
+                {largeDone  > 0 && <span><span className="opacity-60">###</span>{largeDone}</span>}
+                {mediumDone > 0 && <span><span className="opacity-60">##</span>{mediumDone}</span>}
+                {smallDone  > 0 && <span><span className="opacity-60">#</span>{smallDone}</span>}
+              </span>
+            )}
+            {!hasAnyTask && laneSeq === 0 && <span>{data.totalStars || 0}总星</span>}
+          </span>
         </div>
       </div>
     </div>

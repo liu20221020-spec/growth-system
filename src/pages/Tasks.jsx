@@ -14,7 +14,7 @@ const LEVEL_CONFIG = {
 // ─── 主页面 ────────────────────────────────────────────────
 export default function Tasks() {
   const navigate = useNavigate()
-  const { tasks, completeTask, deleteTask } = useStore()
+  const { tasks, completeTask, deleteTask, taskSeqSpent } = useStore()
   const [showAdd, setShowAdd] = useState(false)
   const [addDefault, setAddDefault] = useState({})
   const [editingTask, setEditingTask] = useState(null) // 当前编辑的任务对象
@@ -146,6 +146,10 @@ function LargeBlock({ large, mediums, getSmallOf, onComplete, onDelete, onFocus,
   const totalSmall = mediums.reduce((s, m) => s + getSmallOf(m.id).length, 0)
   const doneSmall  = mediums.reduce((s, m) => s + getSmallOf(m.id).filter(t => t.completed).length, 0)
   const doneMedium = mediums.filter(m => m.completed).length
+  const taskSeqSpent = useStore(s => s.taskSeqSpent)
+  // 大任务本身 + 所有中/小任务的序列消耗之和
+  const allChildIds = [large.id, ...mediums.map(m => m.id), ...mediums.flatMap(m => getSmallOf(m.id).map(t => t.id))]
+  const seqSpent    = +( allChildIds.reduce((sum, id) => sum + (taskSeqSpent[id] || 0), 0).toFixed(1))
 
   return (
     <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(159,95,255,0.2)', background: 'linear-gradient(135deg, #1a1530 0%, #0f0e1f 100%)' }}>
@@ -178,6 +182,7 @@ function LargeBlock({ large, mediums, getSmallOf, onComplete, onDelete, onFocus,
               <span>·</span>
               <span>{doneMedium}/{mediums.length} 中任务</span>
               {totalSmall > 0 && <><span>·</span><span>{doneSmall}/{totalSmall} 小任务</span></>}
+              {seqSpent > 0 && <><span>·</span><span className="text-blue-400/70">⚡{Number.isInteger(seqSpent) ? seqSpent : seqSpent.toFixed(1)}</span></>}
               {!large.completed && <><span>·</span><span className="text-purple-400">完成+10星+120元</span></>}
               {large.completed && large.completedAt && <><span>·</span><span className="text-gray-600">✓ {large.completedAt.slice(0, 10)}</span></>}
               {large.completed && (large.mediumUsed > 0 || large.smallUsed > 0) && (
@@ -245,8 +250,12 @@ function LargeBlock({ large, mediums, getSmallOf, onComplete, onDelete, onFocus,
 // ─── 中任务块 ──────────────────────────────────────────────
 function MediumBlock({ medium, smalls, onComplete, onDelete, onFocus, onEdit, onAddSmall, indent }) {
   const [expanded, setExpanded] = useState(true)
-  const doneSmall = smalls.filter(t => t.completed).length
-  const pl = indent === 1 ? 'pl-10' : 'pl-4'
+  const doneSmall  = smalls.filter(t => t.completed).length
+  const pl         = indent === 1 ? 'pl-10' : 'pl-4'
+  const taskSeqSpent = useStore(s => s.taskSeqSpent)
+  // 中任务本身 + 子小任务 的序列消耗之和
+  const seqSpent   = +([medium.id, ...smalls.map(t => t.id)]
+    .reduce((sum, id) => sum + (taskSeqSpent[id] || 0), 0).toFixed(1))
 
   return (
     <div>
@@ -274,6 +283,7 @@ function MediumBlock({ medium, smalls, onComplete, onDelete, onFocus, onEdit, on
           </div>
           <div className="flex items-center gap-2 mt-0.5 text-[11px] text-gray-500">
             <span>{doneSmall}/{smalls.length} 小任务</span>
+            {seqSpent > 0 && <><span>·</span><span className="text-blue-400/70">⚡{Number.isInteger(seqSpent) ? seqSpent : seqSpent.toFixed(1)}</span></>}
             {!medium.completed && <><span>·</span><span className="text-blue-400/70">完成+3星+25元</span></>}
             {medium.completed && medium.completedAt && <><span>·</span><span className="text-gray-600">✓ {medium.completedAt.slice(0, 10)}</span></>}
           </div>
@@ -325,8 +335,9 @@ function MediumBlock({ medium, smalls, onComplete, onDelete, onFocus, onEdit, on
 
 // ─── 小任务行 ──────────────────────────────────────────────
 function SmallRow({ task, onComplete, onDelete, onFocus, onEdit, indent }) {
-  const diffLabel = DIFFICULTY[task.difficulty || 'medium']?.label || '中等'
-  const pl = indent === 2 ? 'pl-16' : indent === 1 ? 'pl-10' : 'pl-4'
+  const diffLabel  = DIFFICULTY[task.difficulty || 'medium']?.label || '中等'
+  const pl         = indent === 2 ? 'pl-16' : indent === 1 ? 'pl-10' : 'pl-4'
+  const seqSpent   = useStore(s => s.taskSeqSpent[task.id] || 0)
 
   return (
     <div className={`flex items-center gap-3 py-2.5 pr-4 ${pl} bg-white/[0.01] border-b border-white/5`}>
@@ -346,10 +357,16 @@ function SmallRow({ task, onComplete, onDelete, onFocus, onEdit, indent }) {
           {task.title}
         </span>
         {!task.completed && (
-          <span className="ml-2 text-[10px] text-teal-400/60">{diffLabel} · +1星 · 完成赚额度</span>
+          <span className="ml-2 text-[10px] text-teal-400/60">
+            {diffLabel} · +1星 · 完成赚额度
+            {seqSpent > 0 && <span className="ml-1 text-blue-400/70">⚡{Number.isInteger(seqSpent) ? seqSpent : seqSpent.toFixed(1)}</span>}
+          </span>
         )}
-        {task.completed && task.completedAt && (
-          <span className="ml-2 text-[10px] text-gray-600">✓ {task.completedAt.slice(0, 10)}</span>
+        {task.completed && (
+          <span className="ml-2 text-[10px] text-gray-600">
+            {task.completedAt && `✓ ${task.completedAt.slice(0, 10)}`}
+            {seqSpent > 0 && <span className="ml-1 text-blue-400/40">⚡{Number.isInteger(seqSpent) ? seqSpent : seqSpent.toFixed(1)}</span>}
+          </span>
         )}
       </div>
 

@@ -34,6 +34,8 @@ const useStore = create((set, get) => ({
   balance: 0,
   todayEarned: 0,
   focusSequence: 0,
+  laneSequence: {},    // { laneId: float } 各分路专注序列块累计
+  taskSeqSpent: {},    // { taskId: float } 各任务已花专注序列块
   streakDays: 0,
   lastSignDate: null,
   lastMonthlyBonus: null,
@@ -103,6 +105,17 @@ const useStore = create((set, get) => ({
       date: dayjs(f.created_at).format('YYYY-MM-DD HH:mm'),
     }))
 
+    // 从 focus_blocks 重建各分路序列（按时长推断模式：5→0.1, 25→0.5, 90→1.5, 其余→1.0）
+    const laneSequence = {}
+    focusArr.filter(b => b.completed).forEach(b => {
+      const inc = b.durationMin === 5 ? 0.1 : b.durationMin === 25 ? 0.5 : b.durationMin === 90 ? 1.5 : 1.0
+      laneSequence[b.laneId] = +((( laneSequence[b.laneId] || 0) + inc).toFixed(1))
+    })
+
+    // 从 localStorage 恢复任务序列消耗
+    let taskSeqSpent = {}
+    try { taskSeqSpent = JSON.parse(localStorage.getItem('task_seq_spent') || '{}') } catch {}
+
     // policies
     const policiesArr = (policiesData || []).map(p => ({
       id: p.id, name: p.name, desc: p.description,
@@ -142,6 +155,8 @@ const useStore = create((set, get) => ({
       username: userData.username || '勇士',
       balance: computedBalance,
       focusSequence: userData.focus_sequence || 0,
+      laneSequence,
+      taskSeqSpent,
       streakDays: computedStreak,
       lastSignDate: userData.last_sign_date,
       lastMonthlyBonus: userData.last_monthly_bonus,
@@ -277,7 +292,7 @@ const useStore = create((set, get) => ({
   // ═══════════════════════════════════════════════════════
   // 完成专注块
   // ═══════════════════════════════════════════════════════
-  completeFocusBlock: (laneId, tag, difficulty, durationMin = 60, modeKey = 'full') => {
+  completeFocusBlock: (laneId, tag, difficulty, durationMin = 60, modeKey = 'full', linkedTaskId = null) => {
     const s0 = get()
     const { todayStatus, userId } = s0
 
@@ -293,9 +308,19 @@ const useStore = create((set, get) => ({
     const MODE_LABEL = { full: '🔥完整专注', short: '⚡短暂专注', scout: '🔍侦察任务', ultra: '💎超强专注' }
     const modeLabel  = MODE_LABEL[modeKey] || '专注块'
 
-    // 序列计算（用当前 state 值）
-    const prevSeq   = s0.focusSequence
-    const newSeq    = +((prevSeq + seqIncr).toFixed(1))
+    // 全局序列
+    const prevSeq  = s0.focusSequence
+    const newSeq   = +((prevSeq + seqIncr).toFixed(1))
+
+    // 各分路序列
+    const newLaneSeq = +((( s0.laneSequence[laneId] || 0) + seqIncr).toFixed(1))
+
+    // 任务序列消耗（持久化到 localStorage）
+    const newTaskSeqSpent = { ...s0.taskSeqSpent }
+    if (linkedTaskId) {
+      newTaskSeqSpent[linkedTaskId] = +(( (newTaskSeqSpent[linkedTaskId] || 0) + seqIncr).toFixed(1))
+      try { localStorage.setItem('task_seq_spent', JSON.stringify(newTaskSeqSpent)) } catch {}
+    }
 
     // 序列里程碑
     let seqBonus = 0
@@ -319,12 +344,14 @@ const useStore = create((set, get) => ({
     set(s => ({
       proficiency:   { ...s.proficiency, [profKey]: newPoints },
       focusSequence: newSeq,
+      laneSequence:  { ...s.laneSequence, [laneId]: newLaneSeq },
+      taskSeqSpent:  newTaskSeqSpent,
       balance:       newBalance,
       todayEarned:   s.todayEarned + totalReward,
       focusBlocks:   [block, ...s.focusBlocks].slice(0, 1000),
     }))
 
-    // ② 再写 Supabase（移出 set() 避免回调执行不可靠）
+    // ② 再写 Supabase
     if (userId) {
       upsertTag(userId, laneId, tag, newPoints)
       upsertUser(userId, { balance: newBalance, focus_sequence: newSeq })

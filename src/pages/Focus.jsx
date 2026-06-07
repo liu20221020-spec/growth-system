@@ -167,7 +167,7 @@ export default function Focus() {
   const handleComplete = () => {
     clearInterval(timerRef.current)
     clearSession()
-    completeFocusBlock(selectedLane, selectedTag, selectedDiff, duration, selectedMode)
+    completeFocusBlock(selectedLane, selectedTag, selectedDiff, duration, selectedMode, linkedTask?.id ?? null)
     setStep('done')
   }
 
