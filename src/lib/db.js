@@ -145,3 +145,6 @@ export const insertTransaction = (userId, { desc, amount, type, balance, categor
     category: category || null,
     note: note || null,
   }).then(r => ok('insertTransaction', r))
+
+export const deleteTransaction = (id) =>
+  supabase.from('transactions').delete().eq('id', id).then(r => ok('deleteTransaction', r))

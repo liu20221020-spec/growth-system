@@ -3,7 +3,7 @@ import { LANES, LANE_ORDER, getRankFromTotalStars, calcFocusReward,
          calcTaskReward, RANK_PROMOTION_REWARDS, getTierOrder, getLanguageTags } from '../lib/gameLogic'
 import { initUserData, loadUserData, upsertUser, upsertLane, upsertTag,
          insertTask, updateTask, dbDeleteTask, insertFocusBlock,
-         insertPolicy, updatePolicyDates, insertTransaction } from '../lib/db'
+         insertPolicy, updatePolicyDates, insertTransaction, deleteTransaction } from '../lib/db'
 import dayjs from 'dayjs'
 
 // ─── 初始分路状态 ──────────────────────────────────────────
@@ -459,6 +459,25 @@ const useStore = create((set, get) => ({
   // ═══════════════════════════════════════════════════════
   // 消费
   // ═══════════════════════════════════════════════════════
+  // 删除一条收支记录（回滚余额）
+  deleteLedgerEntry: (entryId) => {
+    set(s => {
+      const entry = s.ledger.find(l => l.id === entryId)
+      if (!entry) return {}
+      const newBalance = s.balance - entry.amount  // 撤销该笔金额
+      const { userId } = get()
+      if (userId) {
+        upsertUser(userId, { balance: newBalance })
+        deleteTransaction(entryId)
+      }
+      return {
+        balance: newBalance,
+        ledger: s.ledger.filter(l => l.id !== entryId),
+        transactions: s.transactions.filter(t => t.id !== entryId),
+      }
+    })
+  },
+
   addExpense: (amount, category, note) => {
     const { userId } = get()
     const expense = { id: Date.now(), amount, category, note, date: dayjs().format('YYYY-MM-DD HH:mm'), type: 'expense' }
