@@ -348,6 +348,15 @@ const useStore = create((set, get) => ({
     set(s => {
       const task = s.tasks.find(t => t.id === taskId)
       if (!task || task.completed) return {}
+
+      // 大任务完成时统计子任务数
+      let mediumUsed = 0, smallUsed = 0
+      if (task.level === 'large') {
+        const mediums = s.tasks.filter(t => t.level === 'medium' && t.parentId === taskId)
+        mediumUsed = mediums.length
+        smallUsed  = s.tasks.filter(t => t.level === 'small' && mediums.some(m => m.id === t.parentId)).length
+      }
+
       // 小任务只加星，不加钱
       const reward = task.level === 'small' ? 0 : calcTaskReward(task.laneId, task.level, task.difficulty || 'medium')
       const starGain = task.level === 'small' ? 1 : task.level === 'medium' ? 3 : 10
@@ -365,16 +374,25 @@ const useStore = create((set, get) => ({
 
       setTimeout(() => {
         get().modifyLaneStars(task.laneId, starGain)
-        if (finalReward > 0)
+        if (task.level === 'large') {
+          const parts = []
+          if (mediumUsed > 0) parts.push(`##${mediumUsed}`)
+          if (smallUsed  > 0) parts.push(`#${smallUsed}`)
+          get().addNotification(`###1 大任务完成！${parts.length ? '使用了 ' + parts.join(' ') + '　' : ''}+${finalReward}元 +${starGain}星`)
+        } else if (finalReward > 0) {
           get().addNotification(`✅ 任务完成！+${finalReward}元 +${starGain}星`)
-        else
-          get().addNotification(`✅ 小任务完成！+${starGain}星`)
+        } else {
+          get().addNotification(`#1 小任务完成！+${starGain}星`)
+        }
       }, 100)
 
+      const completedAt = dayjs().format('YYYY-MM-DD HH:mm')
       return {
         balance: newBalance,
         todayEarned: s.todayEarned + finalReward,
-        tasks: s.tasks.map(t => t.id === taskId ? { ...t, completed: true, completedAt: dayjs().format('YYYY-MM-DD HH:mm') } : t),
+        tasks: s.tasks.map(t => t.id === taskId
+          ? { ...t, completed: true, completedAt, mediumUsed, smallUsed }
+          : t),
       }
     })
   },

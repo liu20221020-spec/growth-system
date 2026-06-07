@@ -180,6 +180,12 @@ function LargeBlock({ large, mediums, getSmallOf, onComplete, onDelete, onFocus,
               {totalSmall > 0 && <><span>·</span><span>{doneSmall}/{totalSmall} 小任务</span></>}
               {!large.completed && <><span>·</span><span className="text-purple-400">完成+10星+120元</span></>}
               {large.completed && large.completedAt && <><span>·</span><span className="text-gray-600">✓ {large.completedAt.slice(0, 10)}</span></>}
+              {large.completed && (large.mediumUsed > 0 || large.smallUsed > 0) && (
+                <><span>·</span>
+                <span className="font-mono text-purple-400/60">
+                  {large.mediumUsed > 0 && `##${large.mediumUsed} `}{large.smallUsed > 0 && `#${large.smallUsed}`}
+                </span></>
+              )}
             </div>
 
             {mediums.length > 0 && (

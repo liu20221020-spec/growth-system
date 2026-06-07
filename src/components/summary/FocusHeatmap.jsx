@@ -5,13 +5,13 @@ import { useState } from 'react'
 const WEEKS = 18   // 显示最近18周
 const DAYS  = 7
 
-// 颜色梯度：0块→深色，1→浅绿，2-3→中，4-5→亮，6+→最亮
+// 颜色梯度：0→暗底，1→明显浅绿，越多越深越亮
 function getColor(count) {
-  if (count === 0) return { bg: 'rgba(255,255,255,0.05)', border: 'rgba(255,255,255,0.04)' }
-  if (count === 1) return { bg: 'rgba(79,158,255,0.25)',  border: 'rgba(79,158,255,0.3)' }
-  if (count <= 3)  return { bg: 'rgba(0,212,170,0.35)',   border: 'rgba(0,212,170,0.4)' }
-  if (count <= 5)  return { bg: 'rgba(0,212,170,0.60)',   border: 'rgba(0,212,170,0.65)', glow: '0 0 6px rgba(0,212,170,0.4)' }
-  return              { bg: 'rgba(0,212,170,0.90)',   border: 'rgba(0,212,170,1)',    glow: '0 0 10px rgba(0,212,170,0.6)' }
+  if (count === 0) return { bg: 'rgba(255,255,255,0.06)', border: 'rgba(255,255,255,0.05)' }
+  if (count === 1) return { bg: 'rgba(0,212,170,0.50)',   border: 'rgba(0,212,170,0.55)' }
+  if (count <= 3)  return { bg: 'rgba(0,212,170,0.70)',   border: 'rgba(0,212,170,0.75)', glow: '0 0 4px rgba(0,212,170,0.35)' }
+  if (count <= 5)  return { bg: 'rgba(0,212,170,0.88)',   border: 'rgba(0,212,170,0.9)',  glow: '0 0 8px rgba(0,212,170,0.55)' }
+  return              { bg: 'rgba(0,212,170,1.0)',    border: '#00d4aa',              glow: '0 0 12px rgba(0,212,170,0.75)' }
 }
 
 const DAY_LABELS = ['日', '一', '二', '三', '四', '五', '六']

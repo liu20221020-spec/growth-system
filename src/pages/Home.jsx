@@ -155,7 +155,7 @@ export default function Home() {
         </div>
         <div className="grid grid-cols-2 gap-3">
           {LANE_ORDER.map(id => (
-            <LaneCard key={id} lane={LANES[id]} data={lanes[id] || {}} />
+            <LaneCard key={id} lane={LANES[id]} data={lanes[id] || {}} tasks={tasks} />
           ))}
         </div>
       </div>
