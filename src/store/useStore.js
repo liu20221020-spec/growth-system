@@ -139,6 +139,18 @@ const useStore = create((set, get) => ({
     // ── 从 transactions 实时计算余额（防止 upsertUser 失败导致不一致）
     const computedBalance = (transData || []).reduce((sum, t) => sum + (t.amount || 0), 0)
 
+    // ── 从 transactions 实时计算今日收入
+    const todayStr = dayjs().format('YYYY-MM-DD')
+    const computedTodayEarned = (transData || [])
+      .filter(t => t.amount > 0 && dayjs(t.created_at).format('YYYY-MM-DD') === todayStr)
+      .reduce((sum, t) => sum + t.amount, 0)
+
+    // ── 从 focus_blocks 实时计算专注序列（sum of seqIncr，与 laneSequence 一致）
+    const computedFocusSequence = focusArr.filter(b => b.completed).reduce((sum, b) => {
+      const inc = b.durationMin === 5 ? 0.1 : b.durationMin === 25 ? 0.5 : b.durationMin === 90 ? 1.5 : 1.0
+      return +((sum + inc).toFixed(1))
+    }, 0)
+
     // ── 从 transactions 实时计算连续签到天数
     const activeDates = new Set((transData || []).filter(t => t.amount > 0).map(t => dayjs(t.created_at).format('YYYY-MM-DD')))
     let computedStreak = 0
@@ -154,7 +166,8 @@ const useStore = create((set, get) => ({
       userId,
       username: userData.username || '勇士',
       balance: computedBalance,
-      focusSequence: userData.focus_sequence || 0,
+      todayEarned: computedTodayEarned,
+      focusSequence: computedFocusSequence,
       laneSequence,
       taskSeqSpent,
       streakDays: computedStreak,
