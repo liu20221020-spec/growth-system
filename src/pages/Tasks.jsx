@@ -179,6 +179,7 @@ function LargeBlock({ large, mediums, getSmallOf, onComplete, onDelete, onFocus,
               <span>{doneMedium}/{mediums.length} 中任务</span>
               {totalSmall > 0 && <><span>·</span><span>{doneSmall}/{totalSmall} 小任务</span></>}
               {!large.completed && <><span>·</span><span className="text-purple-400">完成+10星+120元</span></>}
+              {large.completed && large.completedAt && <><span>·</span><span className="text-gray-600">✓ {large.completedAt.slice(0, 10)}</span></>}
             </div>
 
             {mediums.length > 0 && (
@@ -268,6 +269,7 @@ function MediumBlock({ medium, smalls, onComplete, onDelete, onFocus, onEdit, on
           <div className="flex items-center gap-2 mt-0.5 text-[11px] text-gray-500">
             <span>{doneSmall}/{smalls.length} 小任务</span>
             {!medium.completed && <><span>·</span><span className="text-blue-400/70">完成+3星+25元</span></>}
+            {medium.completed && medium.completedAt && <><span>·</span><span className="text-gray-600">✓ {medium.completedAt.slice(0, 10)}</span></>}
           </div>
           {smalls.length > 0 && (
             <div className="mt-1.5 h-1 bg-white/10 rounded-full overflow-hidden">
@@ -339,6 +341,9 @@ function SmallRow({ task, onComplete, onDelete, onFocus, onEdit, indent }) {
         </span>
         {!task.completed && (
           <span className="ml-2 text-[10px] text-teal-400/60">{diffLabel} · +1星</span>
+        )}
+        {task.completed && task.completedAt && (
+          <span className="ml-2 text-[10px] text-gray-600">✓ {task.completedAt.slice(0, 10)}</span>
         )}
       </div>
 
