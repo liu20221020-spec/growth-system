@@ -1,13 +1,22 @@
 import dayjs from 'dayjs'
 import { useState, useRef, useEffect } from 'react'
 
-// 颜色梯度：0→暗底，1→明显浅绿，越多越深越亮
-function getColor(count) {
-  if (count === 0) return { bg: 'rgba(255,255,255,0.06)', border: 'rgba(255,255,255,0.05)' }
-  if (count === 1) return { bg: 'rgba(0,212,170,0.50)',   border: 'rgba(0,212,170,0.55)' }
-  if (count <= 3)  return { bg: 'rgba(0,212,170,0.70)',   border: 'rgba(0,212,170,0.75)', glow: '0 0 4px rgba(0,212,170,0.35)' }
-  if (count <= 5)  return { bg: 'rgba(0,212,170,0.88)',   border: 'rgba(0,212,170,0.9)',  glow: '0 0 8px rgba(0,212,170,0.55)' }
-  return              { bg: 'rgba(0,212,170,1.0)',    border: '#00d4aa',              glow: '0 0 12px rgba(0,212,170,0.75)' }
+// 按时长推算序列增量（与 store/loadUserData 逻辑一致）
+function seqIncrOf(durationMin) {
+  if (durationMin === 5)  return 0.1
+  if (durationMin === 25) return 0.5
+  if (durationMin === 90) return 1.5
+  return 1.0
+}
+
+// 颜色梯度：0→明显灰底，>0 按序列值着绿色
+function getColor(seq) {
+  if (seq === 0)  return { bg: 'rgba(255,255,255,0.10)', border: 'rgba(255,255,255,0.14)' }
+  if (seq < 0.5)  return { bg: 'rgba(0,212,170,0.32)',   border: 'rgba(0,212,170,0.38)' }
+  if (seq < 1.0)  return { bg: 'rgba(0,212,170,0.52)',   border: 'rgba(0,212,170,0.58)' }
+  if (seq < 2.0)  return { bg: 'rgba(0,212,170,0.72)',   border: 'rgba(0,212,170,0.78)', glow: '0 0 4px rgba(0,212,170,0.28)' }
+  if (seq < 3.5)  return { bg: 'rgba(0,212,170,0.88)',   border: 'rgba(0,212,170,0.92)', glow: '0 0 7px rgba(0,212,170,0.42)' }
+  return              { bg: 'rgba(0,212,170,1.0)',    border: '#00d4aa',              glow: '0 0 11px rgba(0,212,170,0.62)' }
 }
 
 const DAY_LABELS   = ['日','一','二','三','四','五','六']
@@ -17,32 +26,35 @@ export default function FocusHeatmap({ focusBlocks }) {
   const [tooltip, setTooltip] = useState(null)
   const scrollRef = useRef(null)
 
-  // 挂载后自动滚到最右（今天）
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollLeft = scrollRef.current.scrollWidth
     }
   }, [])
 
-  // 日期 → 专注块数 映射
-  const countMap = {}
+  // 日期 → 序列值（加权），与专注序列计算逻辑一致
+  const seqMap = {}
   focusBlocks.filter(b => b.completed).forEach(b => {
     const d = b.date?.slice(0, 10)
-    if (d) countMap[d] = (countMap[d] || 0) + 1
+    if (d) {
+      const inc = seqIncrOf(b.durationMin)
+      seqMap[d] = +((( seqMap[d] || 0) + inc).toFixed(1))
+    }
   })
 
   const today = dayjs()
 
-  // 起点：今年6月1日（若今天已在6月后则仍从6月开始）
-  const june1 = dayjs().startOf('year').month(5).date(1)  // 今年6月1日
-  // 对齐到最近的周日（往前找）
+  // 起点：今年6月1日，对齐到最近周日
+  const june1 = dayjs().startOf('year').month(5).date(1)
   let startSunday = june1
   while (startSunday.day() !== 0) startSunday = startSunday.subtract(1, 'day')
 
-  // 结尾：今天所在周的周六（+6天方向），至少包含今天
+  // 结尾：今天所在周的周六
   const endSaturday = today.add(6 - today.day(), 'day')
 
-  // 生成所有列（每列=一周，从周日到周六）
+  const todayStr = today.format('YYYY-MM-DD')
+
+  // 生成所有列（每列=一周，周日→周六）
   const columns = []
   let cur = startSunday
   while (!cur.isAfter(endSaturday)) {
@@ -54,28 +66,29 @@ export default function FocusHeatmap({ focusBlocks }) {
       col.push({
         date: dateStr,
         display: date.format('M/D'),
-        count: isFuture ? -1 : (countMap[dateStr] || 0),
-        month: date.month(),
-        dayOfWeek: date.day(),
-        isToday: dateStr === today.format('YYYY-MM-DD'),
+        seq:     isFuture ? -1 : (seqMap[dateStr] || 0),
+        month:   date.month(),
+        isToday: dateStr === todayStr,
+        isFuture,
       })
     }
     columns.push(col)
     cur = cur.add(7, 'day')
   }
 
-  // 月份标签：每月首次出现在列0（周日）的那列
+  // 月份标签
   const monthMarkers = {}
   columns.forEach((col, wi) => {
     const m = col[0].month
     if (!(m in monthMarkers)) monthMarkers[m] = wi
   })
 
-  // 统计
-  const totalDays   = Object.values(countMap).filter(v => v > 0).length
-  const maxStreak   = calcMaxStreak(countMap, today)
-  const totalBlocks = focusBlocks.filter(b => b.completed).length
-  const CELL = 13  // 格子尺寸 px
+  // 底部统计（全部用序列值）
+  const totalSeq  = Object.values(seqMap).reduce((s, v) => +((s + v).toFixed(1)), 0)
+  const totalDays = Object.values(seqMap).filter(v => v > 0).length
+  const maxStreak = calcMaxStreak(seqMap, today)
+
+  const CELL = 13
   const GAP  = 2
 
   return (
@@ -88,9 +101,9 @@ export default function FocusHeatmap({ focusBlocks }) {
         </div>
         <div className="flex items-center gap-1.5 text-xs text-gray-600">
           <span>少</span>
-          {[0,1,2,4,6].map(n => {
-            const c = getColor(n)
-            return <div key={n} className="w-3 h-3 rounded-sm" style={{ background: c.bg, border: `1px solid ${c.border}` }} />
+          {[0, 0.3, 0.8, 2, 4].map((v, i) => {
+            const c = getColor(v)
+            return <div key={i} className="w-3 h-3 rounded-sm" style={{ background: c.bg, border: `1px solid ${c.border}` }} />
           })}
           <span>多</span>
         </div>
@@ -103,7 +116,7 @@ export default function FocusHeatmap({ focusBlocks }) {
         style={{ WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' }}
       >
         <div style={{ display: 'inline-flex', gap: 0 }}>
-          {/* 星期标签列（固定在左侧感觉更好用flex absolute做，这里简单做内联） */}
+          {/* 星期标签列 */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: GAP, marginRight: 4, paddingTop: 16 }}>
             {DAY_LABELS.map((l, i) => (
               <div key={i} style={{ height: CELL, display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
@@ -129,15 +142,16 @@ export default function FocusHeatmap({ focusBlocks }) {
               })}
             </div>
 
-            {/* 格子网格：横向=周列，纵向=星期 */}
+            {/* 格子网格 */}
             <div style={{ display: 'flex', gap: GAP }}>
               {columns.map((col, wi) => (
                 <div key={wi} style={{ display: 'flex', flexDirection: 'column', gap: GAP, width: CELL, flexShrink: 0 }}>
                   {col.map((cell, di) => {
-                    if (cell.count === -1) {
+                    // 未来日期：透明占位
+                    if (cell.isFuture) {
                       return <div key={di} style={{ width: CELL, height: CELL, borderRadius: 3, opacity: 0 }} />
                     }
-                    const c = getColor(cell.count)
+                    const c = getColor(cell.seq)
                     return (
                       <div
                         key={di}
@@ -146,12 +160,13 @@ export default function FocusHeatmap({ focusBlocks }) {
                           background: c.bg,
                           border: cell.isToday ? '1.5px solid #f5c518' : `1px solid ${c.border}`,
                           boxShadow: cell.isToday ? '0 0 6px rgba(245,197,24,0.5)' : (c.glow || 'none'),
-                          cursor: cell.count > 0 ? 'pointer' : 'default',
+                          cursor: cell.seq > 0 ? 'pointer' : 'default',
                           transition: 'transform 0.15s',
                         }}
-                        onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.3)'; if (cell.count >= 0) setTooltip(cell) }}
-                        onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; setTooltip(null) }}
-                        onTouchStart={() => cell.count > 0 && setTooltip(cell)}
+                        onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.3)'; setTooltip(cell) }}
+                        onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)';   setTooltip(null) }}
+                        onTouchStart={() => setTooltip(cell)}
+                        onTouchEnd={() => setTimeout(() => setTooltip(null), 1500)}
                       />
                     )
                   })}
@@ -168,8 +183,8 @@ export default function FocusHeatmap({ focusBlocks }) {
           <span className="text-white font-bold">{tooltip.display}</span>
           {tooltip.isToday && <span className="text-yellow-400 ml-1">·今天</span>}
           {' · '}
-          {tooltip.count > 0
-            ? <span style={{ color: '#00d4aa' }} className="font-bold">{tooltip.count} 个专注块</span>
+          {tooltip.seq > 0
+            ? <span style={{ color: '#00d4aa' }} className="font-bold">序列 +{Number.isInteger(tooltip.seq) ? tooltip.seq : tooltip.seq.toFixed(1)}</span>
             : <span className="text-gray-600">无记录</span>}
         </div>
       )}
@@ -177,8 +192,10 @@ export default function FocusHeatmap({ focusBlocks }) {
       {/* 底部统计 */}
       <div className="flex items-center justify-around mt-4 pt-3 border-t border-white/5">
         <div className="text-center">
-          <div className="text-lg font-black text-white">{totalBlocks}</div>
-          <div className="text-[10px] text-gray-500 mt-0.5">累计专注块</div>
+          <div className="text-lg font-black text-white">
+            {Number.isInteger(totalSeq) ? totalSeq : totalSeq.toFixed(1)}
+          </div>
+          <div className="text-[10px] text-gray-500 mt-0.5">累计序列值</div>
         </div>
         <div className="w-px h-8 bg-white/10" />
         <div className="text-center">
@@ -193,20 +210,20 @@ export default function FocusHeatmap({ focusBlocks }) {
         <div className="w-px h-8 bg-white/10" />
         <div className="text-center">
           <div className="text-lg font-black text-yellow-400">
-            {totalDays > 0 ? (totalBlocks / totalDays).toFixed(1) : '0'}
+            {totalDays > 0 ? (totalSeq / totalDays).toFixed(1) : '0'}
           </div>
-          <div className="text-[10px] text-gray-500 mt-0.5">块/有记录天</div>
+          <div className="text-[10px] text-gray-500 mt-0.5">序列/天</div>
         </div>
       </div>
     </div>
   )
 }
 
-function calcMaxStreak(countMap, today) {
+function calcMaxStreak(seqMap, today) {
   let max = 0, cur = 0
   for (let i = 0; i < 365; i++) {
     const d = today.subtract(i, 'day').format('YYYY-MM-DD')
-    if (countMap[d] > 0) { cur++; max = Math.max(max, cur) }
+    if ((seqMap[d] || 0) > 0) { cur++; max = Math.max(max, cur) }
     else cur = 0
   }
   return max
