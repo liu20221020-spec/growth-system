@@ -372,9 +372,9 @@ const useStore = create((set, get) => ({
         smallUsed  = s.tasks.filter(t => t.level === 'small' && mediums.some(m => m.id === t.parentId)).length
       }
 
-      // 小任务：给钱不加星；中/大任务：给星（也给钱）
+      // 所有层级都给钱；小任务+1星，中+3星，大+10星
       const reward   = calcTaskReward(task.laneId, task.level, task.difficulty || 'medium')
-      const starGain = task.level === 'small' ? 0 : task.level === 'medium' ? 3 : 10
+      const starGain = task.level === 'small' ? 1 : task.level === 'medium' ? 3 : 10
       const finalReward = (reward > 0 && s.todayStatus === 'poor') ? Math.round(reward * 1.3) : reward
       const newBalance = s.balance + finalReward
 
@@ -388,7 +388,7 @@ const useStore = create((set, get) => ({
       }
 
       setTimeout(() => {
-        if (starGain > 0) get().modifyLaneStars(task.laneId, starGain)
+        get().modifyLaneStars(task.laneId, starGain)
         if (task.level === 'large') {
           const parts = []
           if (mediumUsed > 0) parts.push(`##${mediumUsed}`)
@@ -397,7 +397,7 @@ const useStore = create((set, get) => ({
         } else if (task.level === 'medium') {
           get().addNotification(`##1 中任务完成！+${starGain}星 +${finalReward}元`)
         } else {
-          get().addNotification(`#1 小任务完成！+${finalReward}元`)
+          get().addNotification(`#1 小任务完成！+1星 +${finalReward}元`)
         }
       }, 100)
 

@@ -8,7 +8,7 @@ import dayjs from 'dayjs'
 const COLORS = ['#9f5fff', '#4f9eff', '#00d4aa', '#ff6b35', '#f5c518', '#ff4757']
 
 export default function Summary() {
-  const { lanes, focusBlocks, ledger, transactions, policies, streakDays } = useStore()
+  const { lanes, focusBlocks, ledger, transactions, policies, streakDays, focusSequence } = useStore()
 
   const currentMonth = dayjs().format('YYYY-MM')
   const monthBlocks = focusBlocks.filter(b => b.completed && b.date?.startsWith(currentMonth))
@@ -34,7 +34,7 @@ export default function Summary() {
         {/* 数据概览 */}
         <div className="grid grid-cols-2 gap-3 mb-6">
           {[
-            { label: '本月专注块', value: monthBlocks.length, unit: '个', color: '#4f9eff' },
+            { label: '专注序列#', value: Number.isInteger(focusSequence) ? focusSequence : focusSequence.toFixed(1), unit: '', color: '#4f9eff' },
             { label: '本月收入', value: `¥${totalEarned.toFixed(0)}`, unit: '', color: '#00d4aa' },
             { label: '本月消费', value: `¥${totalSpent.toFixed(0)}`, unit: '', color: '#ff4757' },
             { label: '连续签到', value: streakDays, unit: '天', color: '#f5c518' },

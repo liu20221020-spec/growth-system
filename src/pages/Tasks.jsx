@@ -346,7 +346,7 @@ function SmallRow({ task, onComplete, onDelete, onFocus, onEdit, indent }) {
           {task.title}
         </span>
         {!task.completed && (
-          <span className="ml-2 text-[10px] text-teal-400/60">{diffLabel} · 完成赚额度</span>
+          <span className="ml-2 text-[10px] text-teal-400/60">{diffLabel} · +1星 · 完成赚额度</span>
         )}
         {task.completed && task.completedAt && (
           <span className="ml-2 text-[10px] text-gray-600">✓ {task.completedAt.slice(0, 10)}</span>
@@ -702,7 +702,7 @@ function AddTaskModal({ defaultValues = {}, onClose }) {
           <span className="text-gray-500">完成奖励</span>
           <span style={{ color: cfg.color }} className="font-bold">
             {level === 'small'
-              ? `完成赚额度 · +${LANES[laneId]?.taskRewards?.[level]?.[difficulty] || 0}元`
+              ? `+1星 · +${LANES[laneId]?.taskRewards?.[level]?.[difficulty] || 0}元`
               : level === 'medium'
                 ? `+${cfg.starReward}星 · +${LANES[laneId]?.taskRewards?.medium || 0}元`
                 : `+${cfg.starReward}星 · +${LANES[laneId]?.taskRewards?.large || 120}元`}
