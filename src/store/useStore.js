@@ -372,9 +372,9 @@ const useStore = create((set, get) => ({
         smallUsed  = s.tasks.filter(t => t.level === 'small' && mediums.some(m => m.id === t.parentId)).length
       }
 
-      // 小任务只加星，不加钱
-      const reward = task.level === 'small' ? 0 : calcTaskReward(task.laneId, task.level, task.difficulty || 'medium')
-      const starGain = task.level === 'small' ? 1 : task.level === 'medium' ? 3 : 10
+      // 小任务：给钱不加星；中/大任务：给星（也给钱）
+      const reward   = calcTaskReward(task.laneId, task.level, task.difficulty || 'medium')
+      const starGain = task.level === 'small' ? 0 : task.level === 'medium' ? 3 : 10
       const finalReward = (reward > 0 && s.todayStatus === 'poor') ? Math.round(reward * 1.3) : reward
       const newBalance = s.balance + finalReward
 
@@ -388,16 +388,16 @@ const useStore = create((set, get) => ({
       }
 
       setTimeout(() => {
-        get().modifyLaneStars(task.laneId, starGain)
+        if (starGain > 0) get().modifyLaneStars(task.laneId, starGain)
         if (task.level === 'large') {
           const parts = []
           if (mediumUsed > 0) parts.push(`##${mediumUsed}`)
           if (smallUsed  > 0) parts.push(`#${smallUsed}`)
-          get().addNotification(`###1 大任务完成！${parts.length ? '使用了 ' + parts.join(' ') + '　' : ''}+${finalReward}元 +${starGain}星`)
-        } else if (finalReward > 0) {
-          get().addNotification(`✅ 任务完成！+${finalReward}元 +${starGain}星`)
+          get().addNotification(`###1 大任务完成！${parts.length ? '使用了 '+parts.join(' ')+'　' : ''}+${finalReward}元 +${starGain}星`)
+        } else if (task.level === 'medium') {
+          get().addNotification(`##1 中任务完成！+${starGain}星 +${finalReward}元`)
         } else {
-          get().addNotification(`#1 小任务完成！+${starGain}星`)
+          get().addNotification(`#1 小任务完成！+${finalReward}元`)
         }
       }, 100)
 
@@ -497,16 +497,36 @@ const useStore = create((set, get) => ({
     set(s => {
       const entry = s.ledger.find(l => l.id === entryId)
       if (!entry) return {}
-      const newBalance = s.balance - entry.amount  // 撤销该笔金额
+      const newBalance  = s.balance - entry.amount
+      const newLedger   = s.ledger.filter(l => l.id !== entryId)
+      const newTrans    = s.transactions.filter(t => t.id !== entryId)
+
+      // 重算今日收入
+      const todayStr      = dayjs().format('YYYY-MM-DD')
+      const newTodayEarned = newLedger
+        .filter(l => l.date?.startsWith(todayStr) && l.amount > 0)
+        .reduce((sum, l) => sum + l.amount, 0)
+
+      // 重算连续天数（以 ledger 有记录的日期为准）
+      const activeDates = new Set(newLedger.map(l => l.date?.slice(0, 10)).filter(Boolean))
+      let newStreak = 0
+      for (let i = 0; i < 366; i++) {
+        const d = dayjs().subtract(i, 'day').format('YYYY-MM-DD')
+        if (activeDates.has(d)) newStreak++
+        else break
+      }
+
       const { userId } = get()
       if (userId) {
-        upsertUser(userId, { balance: newBalance })
+        upsertUser(userId, { balance: newBalance, streak_days: newStreak })
         deleteTransaction(entryId)
       }
       return {
         balance: newBalance,
-        ledger: s.ledger.filter(l => l.id !== entryId),
-        transactions: s.transactions.filter(t => t.id !== entryId),
+        ledger: newLedger,
+        transactions: newTrans,
+        todayEarned: newTodayEarned,
+        streakDays: newStreak,
       }
     })
   },
