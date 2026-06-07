@@ -414,10 +414,10 @@ const useStore = create((set, get) => ({
       smallUsed  = s0.tasks.filter(t => t.level === 'small' && mediums.some(m => m.id === t.parentId)).length
     }
 
-    // 所有层级都给钱；小任务+1星，中+3星，大+10星
-    const reward      = calcTaskReward(task.laneId, task.level, task.difficulty || 'medium')
+    // 小任务：只加1星，不给额度；中/大任务：给星+给额度
     const starGain    = task.level === 'small' ? 1 : task.level === 'medium' ? 3 : 10
-    const finalReward = (reward > 0 && s0.todayStatus === 'poor') ? Math.round(reward * 1.3) : reward
+    const baseReward  = task.level === 'small' ? 0 : calcTaskReward(task.laneId, task.level, task.difficulty || 'medium')
+    const finalReward = (baseReward > 0 && s0.todayStatus === 'poor') ? Math.round(baseReward * 1.3) : baseReward
     const newBalance  = s0.balance + finalReward
     const completedAt = dayjs().format('YYYY-MM-DD HH:mm')
     const { userId }  = s0
@@ -431,20 +431,20 @@ const useStore = create((set, get) => ({
         : t),
     }))
 
-    // ② 再写 Supabase（移出 set() 避免回调执行不可靠）
+    // ② 再写 Supabase
     if (userId) {
       updateTask(taskId, { completed: true, completed_at: new Date().toISOString() })
       if (finalReward > 0) {
         upsertUser(userId, { balance: newBalance })
         insertTransaction(userId, {
-          desc: `完成${task.level === 'small'?'小':task.level==='medium'?'中':'大'}任务·${LANES[task.laneId]?.name}`,
+          desc: `完成${task.level === 'medium' ? '中' : '大'}任务·${LANES[task.laneId]?.name}`,
           amount: finalReward, type: '任务', balance: newBalance,
         })
       }
     }
 
     // ③ 本地账本 & 通知
-    if (finalReward > 0) get().addLedger(`完成${task.level === 'small'?'小':task.level==='medium'?'中':'大'}任务·${LANES[task.laneId]?.name}`, finalReward, '任务')
+    if (finalReward > 0) get().addLedger(`完成${task.level === 'medium' ? '中' : '大'}任务·${LANES[task.laneId]?.name}`, finalReward, '任务')
     setTimeout(() => {
       get().modifyLaneStars(task.laneId, starGain)
       if (task.level === 'large') {
@@ -455,7 +455,7 @@ const useStore = create((set, get) => ({
       } else if (task.level === 'medium') {
         get().addNotification(`##1 中任务完成！+${starGain}星 +${finalReward}元`)
       } else {
-        get().addNotification(`#1 小任务完成！+1星 +${finalReward}元`)
+        get().addNotification(`#1 小任务完成！+1星`)
       }
     }, 100)
   },

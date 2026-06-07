@@ -358,7 +358,7 @@ function SmallRow({ task, onComplete, onDelete, onFocus, onEdit, indent }) {
         </span>
         {!task.completed && (
           <span className="ml-2 text-[10px] text-teal-400/60">
-            {diffLabel} · +1星 · 完成赚额度
+            {diffLabel} · +1星
             {seqSpent > 0 && <span className="ml-1 text-blue-400/70">⚡{Number.isInteger(seqSpent) ? seqSpent : seqSpent.toFixed(1)}</span>}
           </span>
         )}
@@ -719,7 +719,7 @@ function AddTaskModal({ defaultValues = {}, onClose }) {
           <span className="text-gray-500">完成奖励</span>
           <span style={{ color: cfg.color }} className="font-bold">
             {level === 'small'
-              ? `+1星 · +${LANES[laneId]?.taskRewards?.[level]?.[difficulty] || 0}元`
+              ? `+1星`
               : level === 'medium'
                 ? `+${cfg.starReward}星 · +${LANES[laneId]?.taskRewards?.medium || 0}元`
                 : `+${cfg.starReward}星 · +${LANES[laneId]?.taskRewards?.large || 120}元`}
