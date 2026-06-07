@@ -39,7 +39,7 @@ export default function Focus() {
 
   const { completeFocusBlock, abandonFocusBlock, getLaneTags, todayStatus,
           addLaneTag, removeLaneTag, addLanguage, removeLanguage, deduplicateTags,
-          languageConfig, completeTask } = useStore()
+          languageConfig, completeTask, addNotification } = useStore()
   const [addingTag, setAddingTag] = useState(false)
   const [editingTags, setEditingTags] = useState(false)
   const [newTagInput, setNewTagInput] = useState('')
@@ -47,6 +47,25 @@ export default function Focus() {
 
   // 首次渲染时清理重复标签
   useEffect(() => { deduplicateTags() }, [])
+
+  // ── 自动补记：上次专注已超时但未手动完成 ──────────────────
+  useEffect(() => {
+    if (savedSession && !hasValid && savedSession.selectedLane && savedSession.selectedTag) {
+      clearSession()
+      // 补记专注块（不自动完成任务，任务视为未完成由用户手动处理）
+      completeFocusBlock(
+        savedSession.selectedLane,
+        savedSession.selectedTag,
+        savedSession.selectedDiff || 'medium',
+        savedSession.duration     || 60,
+        savedSession.selectedMode || 'full',
+        null   // linkedTask 不自动完成
+      )
+      const modeIcon = { full:'🔥', short:'⚡', scout:'🔍', ultra:'💎' }[savedSession.selectedMode] || '🔥'
+      setTimeout(() => addNotification(`⏰ 已自动补记上次专注 ${modeIcon}${savedSession.duration}分钟`), 300)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const [step, setStep] = useState(hasValid ? 'running' : 'select')
   const [selectedLane, setSelectedLane] = useState(hasValid ? savedSession.selectedLane : (linkedTask?.laneId ?? ''))
