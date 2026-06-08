@@ -15,7 +15,8 @@ const TIER_COLORS = {
 export default function LaneDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { lanes, proficiency, focusBlocks, languageConfig, laneTags, addLanguage, addLaneTag, removeLaneTag, removeLanguage } = useStore()
+  const { lanes, proficiency, focusBlocks, languageConfig, laneTags, policies,
+          addLanguage, addLaneTag, removeLaneTag, removeLanguage } = useStore()
   const lane = LANES[id]
   const data = lanes[id] || { totalStars: 0 }
   const { rank, starsInDiv } = getRankFromTotalStars(data.totalStars || 0)
@@ -139,7 +140,7 @@ export default function LaneDetail() {
           </div>
         )}
 
-        {/* 自定义标签添加（非语言分路） */}
+        {/* 自定义标签添加（非语言分路、非理想生活分路） */}
         {id !== 'language' && id !== 'life' && (
           <div className="flex items-center justify-between mb-3">
             <span className="text-sm font-bold text-gray-300">领域标签熟练度</span>
@@ -159,15 +160,17 @@ export default function LaneDetail() {
 
         {id === 'language' && <div className="text-sm font-bold text-gray-300 mb-3">各组合熟练度</div>}
 
-        {/* 熟练度列表 */}
-        {tags.length > 0 ? (
+        {/* 理想生活分路：国策组熟练度 */}
+        {id === 'life' && <PolicyGroupProficiency policies={policies} />}
+
+        {/* 熟练度列表（非 life、非 language 已在上方 guard 跳过） */}
+        {id !== 'life' && (tags.length > 0 ? (
           <div className="space-y-3">
             {tags.map(tag => {
               const points = proficiency[`${id}:${tag}`] || 0
               const { current, progress } = getProficiencyProgress(points)
               const levelColor = ['#00d4aa','#4f9eff','#9f5fff','#f5c518','#ff6b35','#ff4757','#c0c0c0','#ffd700'][current.level - 1]
-              // 语言分路标签不可单独删（需在语种管理里删整个语种）
-              const canDelete = editingTags && id !== 'language' && id !== 'life'
+              const canDelete = editingTags && id !== 'language'
               return (
                 <div key={tag} className={`card-bg rounded-xl p-3 transition-all ${canDelete ? 'border border-red-500/20' : ''}`}>
                   <div className="flex items-center justify-between mb-2">
@@ -198,13 +201,12 @@ export default function LaneDetail() {
             })}
           </div>
         ) : (
-          <div className="text-center text-gray-500 text-sm py-8">
-            {lane.isLifeLane ? '理想生活分路通过国策打卡积累星数' : '暂无标签，点击添加标签'}
-          </div>
-        )}
+          <div className="text-center text-gray-500 text-sm py-8">暂无标签，点击添加标签</div>
+        ))}
       </div>
 
-      {/* 添加标签/语种弹窗 */}
+      {/* 非 life 分路：添加标签/语种弹窗 */}
+      {id === 'life' && null /* life 分路无自定义标签弹窗 */}
       {showAddTag && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70" onClick={() => setShowAddTag(false)}>
           <div className="w-full max-w-lg card-bg rounded-t-3xl p-6 pb-10 space-y-4" onClick={e => e.stopPropagation()}>
@@ -227,6 +229,62 @@ export default function LaneDetail() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── 国策组熟练度模块（仅理想生活分路使用）──────────────────
+function PolicyGroupProficiency({ policies }) {
+  // 按 groupName 统计打卡总次数 → 熟练度点数
+  const groupPoints = {}
+  policies.forEach(p => {
+    const g = p.groupName || '默认'
+    groupPoints[g] = (groupPoints[g] || 0) + (p.checkedDates?.length || 0)
+  })
+  const groups = Object.entries(groupPoints)
+
+  if (groups.length === 0) {
+    return (
+      <div className="text-center text-gray-500 text-sm py-8">
+        暂无国策组记录<br />
+        <span className="text-xs mt-1 block">在国策页面创建国策组并打卡积累熟练度</span>
+      </div>
+    )
+  }
+
+  const LEVEL_COLORS = ['#00d4aa','#4f9eff','#9f5fff','#f5c518','#ff6b35','#ff4757','#c0c0c0','#ffd700']
+
+  return (
+    <div>
+      <div className="text-sm font-bold text-gray-300 mb-3">国策组熟练度</div>
+      <div className="space-y-3">
+        {groups.map(([groupName, points]) => {
+          const { current, progress } = getProficiencyProgress(points)
+          const levelColor = LEVEL_COLORS[current.level - 1]
+          return (
+            <div key={groupName} className="card-bg rounded-xl p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">{groupName}</span>
+                  <span className="text-xs text-gray-500">·</span>
+                  <span className="text-xs text-gray-500">{policies.filter(p => (p.groupName || '默认') === groupName).length}条国策</span>
+                </div>
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+                  style={{ color: levelColor, background: `${levelColor}20`, border: `1px solid ${levelColor}40` }}>
+                  {current.name} Lv.{current.level}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full progress-bar"
+                    style={{ width: `${Math.min(progress, 100)}%`, background: `linear-gradient(90deg, ${levelColor}60, ${levelColor})` }} />
+                </div>
+                <span className="text-xs text-gray-500">{points}点</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

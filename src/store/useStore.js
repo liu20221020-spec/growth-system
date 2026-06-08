@@ -6,6 +6,17 @@ import { initUserData, loadUserData, upsertUser, upsertLane, upsertTag,
          insertPolicy, updatePolicyDates, insertTransaction, deleteTransaction } from '../lib/db'
 import dayjs from 'dayjs'
 
+// ─── 国策日奖励计算 ────────────────────────────────────────
+// 返回当天累计应给予的星数（-1/0/1/2）
+function calcPolicyDayAward(litCount, total) {
+  if (total === 0) return 0
+  const rate = litCount / total
+  if (rate >= 1.0 && total > 5) return 2   // 全部点亮且总数>5：+2星
+  if (rate >= 0.8)              return 1   // ≥80%：+1星
+  if (rate >= 0.5)              return 0   // 50%~79%：不变
+  return -1                                 // <50%：-1星
+}
+
 // ─── 初始分路状态 ──────────────────────────────────────────
 const initLanes = () => {
   const lanes = {}
@@ -59,6 +70,8 @@ const useStore = create((set, get) => ({
 
   // ══════ 国策 ══════
   policies: [],
+  policyDayAward:     { date: '', award: 0 },  // 今日已累计给予的星数，防重复
+  lastStreakBonusDate: null,                    // 7连天奖励最近发放日期（防重复）
 
   // ══════ 账本 & 消费 ══════
   ledger: [],       // 所有收支记录
@@ -116,11 +129,21 @@ const useStore = create((set, get) => ({
     let taskSeqSpent = {}
     try { taskSeqSpent = JSON.parse(localStorage.getItem('task_seq_spent') || '{}') } catch {}
 
-    // policies
+    // policies（groupName 存在 localStorage，key = policy_group_map）
+    let pgMap = {}
+    try { pgMap = JSON.parse(localStorage.getItem('policy_group_map') || '{}') } catch {}
     const policiesArr = (policiesData || []).map(p => ({
       id: p.id, name: p.name, desc: p.description,
       checkedDates: p.checked_dates || [], createdAt: p.created_at,
+      groupName: pgMap[p.id] || '默认',
     }))
+
+    // 今日点亮率 → 初始化 policyDayAward（避免 reload 后重复给星）
+    const todayForPolicy = dayjs().format('YYYY-MM-DD')
+    const litToday0 = policiesArr.filter(p => p.checkedDates.includes(todayForPolicy)).length
+    const initDayAward = litToday0 > 0
+      ? calcPolicyDayAward(litToday0, policiesArr.length)
+      : 0
 
     // transactions → ledger（全部） & transactions（仅消费，负数）
     const ledgerArr = (transData || []).map(t => ({
@@ -182,6 +205,7 @@ const useStore = create((set, get) => ({
       tasks: tasksArr,
       focusBlocks: focusArr,
       policies: policiesArr,
+      policyDayAward: { date: todayForPolicy, award: initDayAward },
       ledger: ledgerArr,
       transactions: expensesArr,
       dataLoaded: true,
@@ -499,55 +523,100 @@ const useStore = create((set, get) => ({
   // 国策
   // ═══════════════════════════════════════════════════════
   addPolicy: async (policy) => {
+    // policy = { name, desc, groupName }
     const { userId } = get()
-    let newPolicy = { id: Date.now(), ...policy, checkedDates: [], createdAt: dayjs().format('YYYY-MM-DD') }
+    const groupName = policy.groupName || '默认'
+    let newPolicy = {
+      id: Date.now(), name: policy.name, desc: policy.desc || '',
+      groupName, checkedDates: [], createdAt: dayjs().format('YYYY-MM-DD'),
+    }
     if (userId) {
-      const row = await insertPolicy(userId, policy)
+      const row = await insertPolicy(userId, { name: policy.name, desc: policy.desc })
       if (row) newPolicy = { ...newPolicy, id: row.id }
     }
+    // 持久化 groupName 到 localStorage
+    try {
+      const pgMap = JSON.parse(localStorage.getItem('policy_group_map') || '{}')
+      pgMap[newPolicy.id] = groupName
+      localStorage.setItem('policy_group_map', JSON.stringify(pgMap))
+    } catch {}
     set(s => ({ policies: [...s.policies, newPolicy] }))
   },
 
   checkPolicy: (policyId) => {
-    const today = dayjs().format('YYYY-MM-DD')
-    const { userId } = get()
-    set(s => {
-      const policy = s.policies.find(p => p.id === policyId)
-      if (!policy || policy.checkedDates?.includes(today)) return {}
-      const checkedDates = [...(policy.checkedDates || []), today]
-      if (userId) updatePolicyDates(policyId, checkedDates)
-      const newBalance = s.balance + 3
-      if (userId) {
-        upsertUser(userId, { balance: newBalance })
-        insertTransaction(userId, { desc: `国策打卡·${policy.name}`, amount: 3, type: '国策', balance: newBalance })
-      }
-      get().addLedger('国策打卡', 3, '国策')
-      return {
-        balance: newBalance,
-        todayEarned: s.todayEarned + 3,
-        policies: s.policies.map(p => p.id === policyId ? { ...p, checkedDates } : p),
-      }
+    const today     = dayjs().format('YYYY-MM-DD')
+    const s0        = get()
+    const { userId } = s0
+    const policy    = s0.policies.find(p => p.id === policyId)
+    if (!policy || policy.checkedDates?.includes(today)) return
+
+    const newCheckedDates = [...policy.checkedDates, today]
+    const newPolicies     = s0.policies.map(p => p.id === policyId ? { ...p, checkedDates: newCheckedDates } : p)
+    const newLitCount     = newPolicies.filter(p => p.checkedDates.includes(today)).length
+    const newBalance      = s0.balance + 3
+
+    // ── 星数增量逻辑 ──
+    const newAward  = calcPolicyDayAward(newLitCount, newPolicies.length)
+    const prevAward = s0.policyDayAward.date === today ? s0.policyDayAward.award : 0
+    const starDelta = newAward - prevAward
+
+    // ① 先更新 state
+    set({
+      balance:        newBalance,
+      todayEarned:    s0.todayEarned + 3,
+      policies:       newPolicies,
+      policyDayAward: { date: today, award: newAward },
     })
+
+    // ② Supabase & 账本
+    if (userId) {
+      updatePolicyDates(policyId, newCheckedDates)
+      upsertUser(userId, { balance: newBalance })
+      insertTransaction(userId, { desc: `国策打卡·${policy.name}`, amount: 3, type: '国策', balance: newBalance })
+    }
+    get().addLedger(`国策打卡·${policy.name}`, 3, '国策')
+
+    // ③ 应用星数变化
+    if (starDelta !== 0) {
+      get().modifyLaneStars('life', starDelta)
+      if (starDelta > 0) {
+        const rate = newLitCount / newPolicies.length
+        const msg  = rate >= 1 && newPolicies.length > 5
+          ? `🏅 今日国策全部点亮！理想生活 +2星`
+          : `💪 今日点亮率≥80%！理想生活 +1星`
+        setTimeout(() => get().addNotification(msg), 200)
+      } else {
+        setTimeout(() => get().addNotification(`⚠️ 今日点亮率不足50%，理想生活 -1星`), 200)
+      }
+    }
+
+    // ④ 7连天全点亮奖励（防重复：7天内只触发一次）
     get().checkPolicyStreak()
   },
 
   checkPolicyStreak: () => {
-    const { policies, userId } = get()
+    const { policies, userId, lastStreakBonusDate } = get()
     if (!policies.length) return
+    const today = dayjs().format('YYYY-MM-DD')
+    // 本周内已发放过，不重复
+    if (lastStreakBonusDate) {
+      const daysSince = dayjs(today).diff(dayjs(lastStreakBonusDate), 'day')
+      if (daysSince < 7) return
+    }
     const last7 = Array.from({ length: 7 }, (_, i) => dayjs().subtract(i, 'day').format('YYYY-MM-DD'))
     const allLit = policies.every(p => last7.every(d => p.checkedDates?.includes(d)))
-    if (allLit) {
-      set(s => {
-        const newBalance = s.balance + 30
-        if (userId) {
-          upsertUser(userId, { balance: newBalance })
-          insertTransaction(userId, { desc: '国策连续7天全点亮', amount: 30, type: '国策', balance: newBalance })
-        }
-        return { balance: newBalance, todayEarned: s.todayEarned + 30 }
-      })
-      get().modifyLaneStars('life', 5)
-      get().addNotification('🔥 国策连续7天全点亮！+30元 +5星')
+    if (!allLit) return
+
+    const s0        = get()
+    const newBalance = s0.balance + 30
+    set({ balance: newBalance, todayEarned: s0.todayEarned + 30, lastStreakBonusDate: today })
+    if (userId) {
+      upsertUser(userId, { balance: newBalance })
+      insertTransaction(userId, { desc: '国策连续7天全点亮', amount: 30, type: '国策', balance: newBalance })
     }
+    get().addLedger('国策7连天全点亮', 30, '国策')
+    get().modifyLaneStars('life', 5)
+    get().addNotification('🔥 国策连续7天全点亮！+30元 +5星')
   },
 
   // ═══════════════════════════════════════════════════════
