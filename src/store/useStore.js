@@ -594,6 +594,31 @@ const useStore = create((set, get) => ({
     get().checkPolicyStreak()
   },
 
+  // 修改单条国策的归属组（持久化到 localStorage）
+  movePolicyToGroup: (policyId, groupName) => {
+    try {
+      const pgMap = JSON.parse(localStorage.getItem('policy_group_map') || '{}')
+      pgMap[policyId] = groupName
+      localStorage.setItem('policy_group_map', JSON.stringify(pgMap))
+    } catch {}
+    set(s => ({
+      policies: s.policies.map(p => p.id === policyId ? { ...p, groupName } : p)
+    }))
+  },
+
+  // 重命名一个组（将所有属于 oldName 的国策改为 newName）
+  renameGroup: (oldName, newName) => {
+    if (!newName.trim() || oldName === newName) return
+    try {
+      const pgMap = JSON.parse(localStorage.getItem('policy_group_map') || '{}')
+      Object.keys(pgMap).forEach(id => { if (pgMap[id] === oldName) pgMap[id] = newName.trim() })
+      localStorage.setItem('policy_group_map', JSON.stringify(pgMap))
+    } catch {}
+    set(s => ({
+      policies: s.policies.map(p => p.groupName === oldName ? { ...p, groupName: newName.trim() } : p)
+    }))
+  },
+
   checkPolicyStreak: () => {
     const { policies, userId, lastStreakBonusDate } = get()
     if (!policies.length) return

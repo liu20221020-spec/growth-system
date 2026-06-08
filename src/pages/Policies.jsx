@@ -1,14 +1,13 @@
 import { useState, useMemo } from 'react'
-import { Plus, Flame, Trophy, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Flame, Trophy, ChevronDown, ChevronUp, Pencil, Settings } from 'lucide-react'
 import useStore from '../store/useStore'
 import dayjs from 'dayjs'
 
 // ── 连续天数计算 ──────────────────────────────────────────────
 function getStreak(policy) {
-  const dates  = policy.checkedDates || []
-  const today  = dayjs().format('YYYY-MM-DD')
-  const yest   = dayjs().subtract(1, 'day').format('YYYY-MM-DD')
-  // 从今天或昨天开始往前数（今天未打卡但昨天打过，不清零）
+  const dates = policy.checkedDates || []
+  const today = dayjs().format('YYYY-MM-DD')
+  const yest  = dayjs().subtract(1, 'day').format('YYYY-MM-DD')
   let start = dates.includes(today) ? dayjs() : (dates.includes(yest) ? dayjs().subtract(1, 'day') : null)
   if (!start) return 0
   let n = 0, d = start
@@ -37,10 +36,12 @@ function getRateDesc(litCount, total) {
 }
 
 export default function Policies() {
-  const { policies, addPolicy, checkPolicy } = useStore()
-  const [showAdd, setShowAdd]     = useState(false)
-  const [collapsed, setCollapsed] = useState({})
-  const today   = dayjs().format('YYYY-MM-DD')
+  const { policies, addPolicy, checkPolicy, movePolicyToGroup, renameGroup } = useStore()
+  const [showAdd,         setShowAdd]         = useState(false)
+  const [showManage,      setShowManage]       = useState(false)
+  const [editingPolicy,   setEditingPolicy]    = useState(null) // policy object
+  const [collapsed,       setCollapsed]        = useState({})
+  const today    = dayjs().format('YYYY-MM-DD')
   const isSunday = dayjs().day() === 0
 
   // 可以新增：首条 or 最新一条坚持满7天
@@ -51,7 +52,7 @@ export default function Policies() {
     return days >= 7 && (last.checkedDates?.filter(d => dayjs(d).diff(dayjs(last.createdAt), 'day') < 7).length || 0) >= 7
   })()
 
-  // 按 groupName 分组，保持创建顺序
+  // 按 groupName 分组
   const groups = useMemo(() => {
     const map = {}
     policies.forEach(p => {
@@ -59,12 +60,14 @@ export default function Policies() {
       if (!map[g]) map[g] = []
       map[g].push(p)
     })
-    return Object.entries(map)  // [['组名', [policy...]], ...]
+    return Object.entries(map)
   }, [policies])
 
+  const groupNames = groups.map(([g]) => g)
+
   // 全局今日进度
-  const litTotal  = policies.filter(p => p.checkedDates?.includes(today)).length
-  const litRate   = policies.length > 0 ? litTotal / policies.length : 0
+  const litTotal = policies.filter(p => p.checkedDates?.includes(today)).length
+  const litRate  = policies.length > 0 ? litTotal / policies.length : 0
 
   const toggleGroup = (g) => setCollapsed(prev => ({ ...prev, [g]: !prev[g] }))
 
@@ -74,13 +77,23 @@ export default function Policies() {
         {/* 标题栏 */}
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-xl font-black">国策</h1>
-          {isSunday && canAddNew && (
-            <button onClick={() => setShowAdd(true)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold"
-              style={{ background: 'linear-gradient(135deg, #3a1a6c, #1d0d48)', border: '1px solid rgba(159,95,255,0.4)' }}>
-              <Plus size={16} /> 新增国策
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {policies.length > 0 && (
+              <button onClick={() => setShowManage(true)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold"
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)' }}>
+                <Settings size={14} className="text-gray-400" />
+                <span className="text-gray-400">管理组</span>
+              </button>
+            )}
+            {isSunday && canAddNew && (
+              <button onClick={() => setShowAdd(true)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-bold"
+                style={{ background: 'linear-gradient(135deg, #3a1a6c, #1d0d48)', border: '1px solid rgba(159,95,255,0.4)' }}>
+                <Plus size={16} /> 新增国策
+              </button>
+            )}
+          </div>
         </div>
 
         {/* 全局今日总览 */}
@@ -117,20 +130,22 @@ export default function Policies() {
         {groups.length > 0 ? (
           <div className="space-y-4">
             {groups.map(([groupName, gpPolicies]) => {
-              const gpLit   = gpPolicies.filter(p => p.checkedDates?.includes(today)).length
-              const gpRate  = gpPolicies.length > 0 ? gpLit / gpPolicies.length : 0
-              const isOpen  = !collapsed[groupName]
+              const gpLit  = gpPolicies.filter(p => p.checkedDates?.includes(today)).length
+              const gpRate = gpPolicies.length > 0 ? gpLit / gpPolicies.length : 0
+              const isOpen = !collapsed[groupName]
               return (
-                <div key={groupName} className="rounded-2xl overflow-hidden" style={{ border: '1px solid rgba(159,95,255,0.18)', background: 'rgba(20,15,40,0.7)' }}>
+                <div key={groupName} className="rounded-2xl overflow-hidden"
+                  style={{ border: '1px solid rgba(159,95,255,0.18)', background: 'rgba(20,15,40,0.7)' }}>
                   {/* 组标题 */}
-                  <button
-                    className="w-full flex items-center justify-between px-4 py-3"
+                  <button className="w-full flex items-center justify-between px-4 py-3"
                     onClick={() => toggleGroup(groupName)}>
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-black text-purple-300">{groupName}</span>
                       <span className="text-xs px-2 py-0.5 rounded-full font-bold"
-                        style={{ background: gpRate >= 0.8 ? 'rgba(0,200,83,0.15)' : gpRate >= 0.5 ? 'rgba(245,197,24,0.12)' : 'rgba(255,71,87,0.12)',
-                                 color: gpRate >= 0.8 ? '#00c853' : gpRate >= 0.5 ? '#f5c518' : '#ff4757' }}>
+                        style={{
+                          background: gpRate >= 0.8 ? 'rgba(0,200,83,0.15)' : gpRate >= 0.5 ? 'rgba(245,197,24,0.12)' : 'rgba(255,71,87,0.12)',
+                          color:      gpRate >= 0.8 ? '#00c853'              : gpRate >= 0.5 ? '#f5c518'              : '#ff4757',
+                        }}>
                         {gpLit}/{gpPolicies.length}
                       </span>
                     </div>
@@ -149,7 +164,9 @@ export default function Policies() {
                   {isOpen && (
                     <div className="divide-y divide-white/5">
                       {gpPolicies.map(p => (
-                        <PolicyCard key={p.id} policy={p} today={today} onCheck={() => checkPolicy(p.id)} />
+                        <PolicyCard key={p.id} policy={p} today={today}
+                          onCheck={() => checkPolicy(p.id)}
+                          onEditGroup={() => setEditingPolicy(p)} />
                       ))}
                     </div>
                   )}
@@ -166,13 +183,35 @@ export default function Policies() {
         )}
       </div>
 
-      {showAdd && <AddPolicyModal onClose={() => setShowAdd(false)} existingGroups={groups.map(([g]) => g)} />}
+      {/* 弹窗 */}
+      {showAdd && (
+        <AddPolicyModal
+          onClose={() => setShowAdd(false)}
+          existingGroups={groupNames}
+          onAdd={(data) => { addPolicy(data); setShowAdd(false) }}
+        />
+      )}
+      {showManage && (
+        <GroupManageModal
+          groups={groupNames}
+          onClose={() => setShowManage(false)}
+          onRename={(oldName, newName) => renameGroup(oldName, newName)}
+        />
+      )}
+      {editingPolicy && (
+        <EditGroupModal
+          policy={editingPolicy}
+          existingGroups={groupNames}
+          onClose={() => setEditingPolicy(null)}
+          onMove={(policyId, groupName) => { movePolicyToGroup(policyId, groupName); setEditingPolicy(null) }}
+        />
+      )}
     </div>
   )
 }
 
 // ── 单条国策卡片 ─────────────────────────────────────────────
-function PolicyCard({ policy, today, onCheck }) {
+function PolicyCard({ policy, today, onCheck, onEditGroup }) {
   const isLit  = policy.checkedDates?.includes(today)
   const streak = getStreak(policy)
   const best   = getBestStreak(policy)
@@ -195,19 +234,29 @@ function PolicyCard({ policy, today, onCheck }) {
           {policy.desc && <div className="text-xs text-gray-500 mt-0.5 truncate">{policy.desc}</div>}
         </div>
 
-        {/* 连续天数 */}
-        <div className="flex flex-col items-end gap-0.5 shrink-0">
-          <div className="flex items-center gap-1 text-orange-400">
-            <Flame size={13} />
-            <span className="text-sm font-black">{streak}</span>
-            <span className="text-[10px] text-gray-500">天</span>
-          </div>
-          {best > 0 && (
-            <div className="flex items-center gap-1 text-yellow-500/70">
-              <Trophy size={10} />
-              <span className="text-[10px]">最高{best}</span>
+        {/* 右侧：编辑组按钮 + 连续天数 */}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* 编辑归属组 */}
+          <button
+            onClick={onEditGroup}
+            className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors bg-white/5 hover:bg-purple-500/20 border border-white/10 hover:border-purple-500/30">
+            <Pencil size={11} className="text-gray-500 hover:text-purple-300" />
+          </button>
+
+          {/* 连续天数 */}
+          <div className="flex flex-col items-end gap-0.5">
+            <div className="flex items-center gap-1 text-orange-400">
+              <Flame size={13} />
+              <span className="text-sm font-black">{streak}</span>
+              <span className="text-[10px] text-gray-500">天</span>
             </div>
-          )}
+            {best > 0 && (
+              <div className="flex items-center gap-1 text-yellow-500/70">
+                <Trophy size={10} />
+                <span className="text-[10px]">最高{best}</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -224,20 +273,24 @@ function PolicyCard({ policy, today, onCheck }) {
 }
 
 // ── 新增国策弹窗 ─────────────────────────────────────────────
-function AddPolicyModal({ onClose, existingGroups }) {
-  const { addPolicy } = useStore()
+function AddPolicyModal({ onClose, existingGroups, onAdd }) {
+  const noGroups    = existingGroups.length === 0
   const [name,      setName]      = useState('')
   const [desc,      setDesc]      = useState('')
-  const [groupMode, setGroupMode] = useState('existing') // 'existing' | 'new'
+  // 若没有现有组则强制新建；否则默认选已有
+  const [groupMode, setGroupMode] = useState(noGroups ? 'new' : 'existing')
   const [selGroup,  setSelGroup]  = useState(existingGroups[0] || '')
   const [newGroup,  setNewGroup]  = useState('')
 
-  const finalGroup = groupMode === 'new' ? newGroup.trim() || '默认' : (selGroup || '默认')
+  const finalGroup = groupMode === 'new'
+    ? newGroup.trim()   // 不设 fallback，留空则无法提交
+    : (selGroup || '')
+
+  const canSubmit = name.trim() && finalGroup
 
   const handleSubmit = () => {
-    if (!name.trim()) return
-    addPolicy({ name: name.trim(), desc: desc.trim(), groupName: finalGroup })
-    onClose()
+    if (!canSubmit) return
+    onAdd({ name: name.trim(), desc: desc.trim(), groupName: finalGroup })
   }
 
   return (
@@ -257,22 +310,28 @@ function AddPolicyModal({ onClose, existingGroups }) {
           placeholder="描述（可选）"
           className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-purple-500/50" />
 
-        {/* 国策组 */}
+        {/* 国策组 — 必填 */}
         <div>
-          <div className="text-xs text-gray-400 mb-2">选择国策组</div>
-          <div className="flex gap-2 mb-3">
-            {existingGroups.length > 0 && (
+          <div className="flex items-center gap-1.5 mb-2">
+            <span className="text-xs text-gray-400">选择国策组</span>
+            <span className="text-xs text-red-400">*必填</span>
+          </div>
+
+          {/* 模式切换 */}
+          {!noGroups && (
+            <div className="flex gap-2 mb-3">
               <button onClick={() => setGroupMode('existing')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${groupMode === 'existing' ? 'bg-purple-500/30 border border-purple-500/50 text-purple-300' : 'bg-white/5 border border-white/10 text-gray-400'}`}>
                 选择已有组
               </button>
-            )}
-            <button onClick={() => setGroupMode('new')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${groupMode === 'new' ? 'bg-blue-500/30 border border-blue-500/50 text-blue-300' : 'bg-white/5 border border-white/10 text-gray-400'}`}>
-              新建组
-            </button>
-          </div>
+              <button onClick={() => setGroupMode('new')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${groupMode === 'new' ? 'bg-blue-500/30 border border-blue-500/50 text-blue-300' : 'bg-white/5 border border-white/10 text-gray-400'}`}>
+                新建组
+              </button>
+            </div>
+          )}
 
+          {/* 已有组选择 */}
           {groupMode === 'existing' && existingGroups.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {existingGroups.map(g => (
@@ -284,21 +343,164 @@ function AddPolicyModal({ onClose, existingGroups }) {
             </div>
           )}
 
+          {/* 新建组输入 */}
           {groupMode === 'new' && (
             <input value={newGroup} onChange={e => setNewGroup(e.target.value)}
-              placeholder="新国策组名称，如：健康习惯"
-              className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-blue-500/50" />
+              placeholder="请输入新国策组名称，如：健康习惯"
+              className={`w-full bg-white/5 rounded-xl px-4 py-3 text-sm outline-none transition-colors ${newGroup.trim() ? 'border border-blue-500/50' : 'border border-red-500/30 focus:border-blue-500/50'}`} />
           )}
 
-          <div className="text-xs text-gray-600 mt-2">
-            将归入：<span className="text-purple-300 font-bold">{finalGroup}</span>
-          </div>
+          {/* 预览 */}
+          {finalGroup ? (
+            <div className="text-xs text-gray-500 mt-2">
+              将归入：<span className="text-purple-300 font-bold">{finalGroup}</span>
+            </div>
+          ) : (
+            <div className="text-xs text-red-400/80 mt-2">请选择或新建一个国策组</div>
+          )}
         </div>
 
-        <button onClick={handleSubmit} disabled={!name.trim()}
+        <button onClick={handleSubmit} disabled={!canSubmit}
           className="w-full py-3 rounded-xl font-bold text-base disabled:opacity-30"
           style={{ background: 'linear-gradient(135deg, #3a1a6c, #1d0d48)', border: '1px solid rgba(159,95,255,0.4)' }}>
           确认新增
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── 修改国策归属组弹窗 ────────────────────────────────────────
+function EditGroupModal({ policy, existingGroups, onClose, onMove }) {
+  const [mode,     setMode]     = useState('existing')
+  const [selGroup, setSelGroup] = useState(policy.groupName || existingGroups[0] || '')
+  const [newGroup, setNewGroup] = useState('')
+
+  const finalGroup = mode === 'new' ? newGroup.trim() : selGroup
+  const canSubmit  = finalGroup && finalGroup !== policy.groupName
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70" onClick={onClose}>
+      <div className="w-full max-w-lg card-bg rounded-t-3xl p-6 pb-10 space-y-4" onClick={e => e.stopPropagation()}>
+        <div className="w-10 h-1 bg-gray-600 rounded-full mx-auto mb-2" />
+        <h2 className="text-lg font-black">修改所属国策组</h2>
+        <div className="text-xs text-gray-400">
+          当前：<span className="text-purple-300 font-bold">{policy.groupName}</span>
+          <span className="ml-2">· {policy.name}</span>
+        </div>
+
+        {/* 模式切换 */}
+        <div className="flex gap-2">
+          <button onClick={() => setMode('existing')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${mode === 'existing' ? 'bg-purple-500/30 border border-purple-500/50 text-purple-300' : 'bg-white/5 border border-white/10 text-gray-400'}`}>
+            移到已有组
+          </button>
+          <button onClick={() => setMode('new')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${mode === 'new' ? 'bg-blue-500/30 border border-blue-500/50 text-blue-300' : 'bg-white/5 border border-white/10 text-gray-400'}`}>
+            移到新建组
+          </button>
+        </div>
+
+        {mode === 'existing' && (
+          <div className="flex flex-wrap gap-2">
+            {existingGroups.map(g => (
+              <button key={g} onClick={() => setSelGroup(g)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  selGroup === g
+                    ? g === policy.groupName
+                      ? 'bg-gray-500/30 border border-gray-500/50 text-gray-300'
+                      : 'bg-purple-500/40 border border-purple-500/60 text-white'
+                    : 'bg-white/5 border border-white/10 text-gray-400'
+                }`}>
+                {g}{g === policy.groupName ? ' (当前)' : ''}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {mode === 'new' && (
+          <input value={newGroup} onChange={e => setNewGroup(e.target.value)}
+            placeholder="新国策组名称"
+            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-blue-500/50" />
+        )}
+
+        {finalGroup && finalGroup !== policy.groupName && (
+          <div className="text-xs text-gray-500">
+            将移入：<span className="text-purple-300 font-bold">{finalGroup}</span>
+          </div>
+        )}
+
+        <button onClick={() => canSubmit && onMove(policy.id, finalGroup)} disabled={!canSubmit}
+          className="w-full py-3 rounded-xl font-bold text-base disabled:opacity-30"
+          style={{ background: 'linear-gradient(135deg, #3a1a6c, #1d0d48)', border: '1px solid rgba(159,95,255,0.4)' }}>
+          确认修改
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── 管理国策组弹窗 ────────────────────────────────────────────
+function GroupManageModal({ groups, onClose, onRename }) {
+  // editingGroup: null | { name: string, newName: string }
+  const [editing, setEditing] = useState(null)
+
+  const handleRename = () => {
+    if (!editing || !editing.newName.trim()) return
+    onRename(editing.name, editing.newName.trim())
+    setEditing(null)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70" onClick={onClose}>
+      <div className="w-full max-w-lg card-bg rounded-t-3xl p-6 pb-10" onClick={e => e.stopPropagation()}>
+        <div className="w-10 h-1 bg-gray-600 rounded-full mx-auto mb-4" />
+        <h2 className="text-lg font-black mb-4">管理国策组</h2>
+
+        <div className="space-y-3">
+          {groups.map(g => (
+            <div key={g} className="rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+              {editing?.name === g ? (
+                /* 编辑中 */
+                <div className="flex items-center gap-2">
+                  <input
+                    autoFocus
+                    value={editing.newName}
+                    onChange={e => setEditing({ ...editing, newName: e.target.value })}
+                    onKeyDown={e => { if (e.key === 'Enter') handleRename(); if (e.key === 'Escape') setEditing(null) }}
+                    className="flex-1 bg-white/10 border border-purple-500/40 rounded-lg px-3 py-1.5 text-sm outline-none"
+                  />
+                  <button onClick={handleRename} disabled={!editing.newName.trim() || editing.newName.trim() === g}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-40"
+                    style={{ background: 'linear-gradient(135deg, #3a1a6c, #1d0d48)', border: '1px solid rgba(159,95,255,0.4)' }}>
+                    保存
+                  </button>
+                  <button onClick={() => setEditing(null)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-gray-400 bg-white/5 border border-white/10">
+                    取消
+                  </button>
+                </div>
+              ) : (
+                /* 普通显示 */
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold text-purple-300">{g}</span>
+                  <button
+                    onClick={() => setEditing({ name: g, newName: g })}
+                    className="flex items-center gap-1 px-3 py-1 rounded-lg text-xs text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 transition-colors">
+                    <Pencil size={11} /> 重命名
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 text-xs text-gray-600 text-center">重命名后，该组内所有国策自动归入新名称</div>
+
+        <button onClick={onClose}
+          className="w-full mt-4 py-3 rounded-xl font-bold text-gray-300"
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
+          完成
         </button>
       </div>
     </div>
