@@ -359,13 +359,15 @@ const useStore = create((set, get) => ({
       try { localStorage.setItem('task_seq_spent', JSON.stringify(newTaskSeqSpent)) } catch {}
     }
 
-    // 序列里程碑
+    // 检测序列里程碑（不再合并进专注奖励，单独记录）
     let seqBonus = 0
+    let seqMilestone = 0
     for (const [threshold, bonus] of [[5,10],[10,25],[20,60],[30,100]]) {
-      if (prevSeq < threshold && newSeq >= threshold) { seqBonus = bonus; break }
+      if (prevSeq < threshold && newSeq >= threshold) { seqBonus = bonus; seqMilestone = threshold; break }
     }
-    const totalReward = reward + seqBonus
-    const newBalance  = s0.balance + totalReward
+
+    const newBalance      = s0.balance + reward                          // 专注奖励先入账
+    const newBalanceAfter = newBalance + seqBonus                        // 里程碑再入账
 
     // 更新熟练度
     const profKey   = `${laneId}:${tag}`
@@ -377,28 +379,36 @@ const useStore = create((set, get) => ({
     }
     const desc = `${modeLabel}·${LANES[laneId]?.name}·${tag}`
 
-    // ① 先更新本地 state
+    // ① 先更新本地 state（专注奖励 + 里程碑奖励分别计入）
     set(s => ({
       proficiency:   { ...s.proficiency, [profKey]: newPoints },
       focusSequence: newSeq,
       laneSequence:  { ...s.laneSequence, [laneId]: newLaneSeq },
       taskSeqSpent:  newTaskSeqSpent,
-      balance:       newBalance,
-      todayEarned:   s.todayEarned + totalReward,
+      balance:       newBalanceAfter,
+      todayEarned:   s.todayEarned + reward + seqBonus,
       focusBlocks:   [block, ...s.focusBlocks].slice(0, 1000),
     }))
 
-    // ② 再写 Supabase
+    // ② 再写 Supabase（专注记录只含专注奖励，里程碑单独一条）
     if (userId) {
       upsertTag(userId, laneId, tag, newPoints)
-      upsertUser(userId, { balance: newBalance, focus_sequence: newSeq })
+      upsertUser(userId, { balance: newBalanceAfter, focus_sequence: newSeq })
       insertFocusBlock(userId, { laneId, tag, difficulty, durationMin, reward, completed: true })
-      insertTransaction(userId, { desc, amount: totalReward, type: '专注', balance: newBalance })
+      insertTransaction(userId, { desc, amount: reward, type: '专注', balance: newBalance })
+      if (seqBonus > 0) {
+        const milestoneDesc = `⭐ 序列里程碑·序列值突破${seqMilestone}！`
+        insertTransaction(userId, { desc: milestoneDesc, amount: seqBonus, type: '里程碑', balance: newBalanceAfter })
+      }
     }
 
     // ③ 本地账本 & 通知
-    get().addLedger(desc, totalReward, '专注')
-    if (seqBonus > 0) setTimeout(() => get().addNotification(`#序列里程碑 #${newSeq}！+${seqBonus}元`), 100)
+    get().addLedger(desc, reward, '专注')
+    if (seqBonus > 0) {
+      const milestoneDesc = `⭐ 序列里程碑·序列值突破${seqMilestone}！`
+      get().addLedger(milestoneDesc, seqBonus, '里程碑')
+      setTimeout(() => get().addNotification(`⭐ 序列里程碑！序列突破 ${seqMilestone} ！+${seqBonus}元`), 100)
+    }
   },
 
   // 放弃专注块
