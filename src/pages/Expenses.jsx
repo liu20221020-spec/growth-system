@@ -200,8 +200,9 @@ export default function Expenses() {
 // 收支类型对应的 emoji
 function getTypeIcon(type) {
   const map = {
-    '专注': '🔥', '任务': '✅', '消费': '💸', '段位奖励': '🏆',
+    '专注': '🔥', '任务': '✅', '消费': '💸', '段位': '🏆',
     '状态加成': '⚡', '国策': '📋', '签到': '📅', '月度': '🎁',
+    '里程碑': '⭐', '系统': '🎁',
   }
   if (!type) return '📌'
   for (const [k, v] of Object.entries(map)) {
