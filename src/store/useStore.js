@@ -619,13 +619,17 @@ const useStore = create((set, get) => ({
   // 重命名一个组（将所有属于 oldName 的国策改为 newName）
   renameGroup: (oldName, newName) => {
     if (!newName.trim() || oldName === newName) return
+    const trimmed = newName.trim()
+    // 用当前 state 里的 policies 来确定哪些 id 属于该组（包括靠默认值落入该组的）
+    const affected = get().policies.filter(p => (p.groupName || '默认') === oldName)
     try {
       const pgMap = JSON.parse(localStorage.getItem('policy_group_map') || '{}')
-      Object.keys(pgMap).forEach(id => { if (pgMap[id] === oldName) pgMap[id] = newName.trim() })
+      affected.forEach(p => { pgMap[p.id] = trimmed })          // 显式写入所有受影响的 id
+      Object.keys(pgMap).forEach(id => { if (pgMap[id] === oldName) pgMap[id] = trimmed }) // 兜底更新已有条目
       localStorage.setItem('policy_group_map', JSON.stringify(pgMap))
     } catch {}
     set(s => ({
-      policies: s.policies.map(p => p.groupName === oldName ? { ...p, groupName: newName.trim() } : p)
+      policies: s.policies.map(p => (p.groupName || '默认') === oldName ? { ...p, groupName: trimmed } : p)
     }))
   },
 
