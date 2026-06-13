@@ -83,6 +83,9 @@ export default function Focus() {
   const startTimeRef   = useRef(hasValid ? savedSession.startTime   : null)
   const pauseStartRef  = useRef(hasValid && savedSession.isPaused ? Date.now() : null)
   const totalPausedRef = useRef(hasValid ? savedSession.totalPaused : 0)
+  // 用 ref 存当前 duration/mode，避免 setInterval 里捕获 stale closure
+  const durationRef    = useRef(hasValid ? savedSession.duration : 60)
+  const modeRef        = useRef(hasValid ? savedSession.selectedMode : 'full')
 
   // 恢复后自动继续计时（非暂停状态）
   const restoredRef = useRef(false)
@@ -147,7 +150,7 @@ export default function Focus() {
   useEffect(() => {
     const handleVisibility = () => {
       if (document.visibilityState === 'visible' && step === 'running' && !isPaused) {
-        const totalSecs = duration * 60
+        const totalSecs = durationRef.current * 60
         const remaining = calcRemaining(totalSecs)
         setTimeLeft(remaining)
         if (remaining <= 0) {
@@ -164,6 +167,8 @@ export default function Focus() {
     const mode = FOCUS_MODES.find(m => m.key === selectedMode)
     const mins = mode.duration
     const totalSecs = mins * 60
+    durationRef.current = mins
+    modeRef.current = selectedMode
     setDuration(mins)
     setTimeLeft(totalSecs)
     startTimeRef.current = Date.now()
@@ -186,14 +191,15 @@ export default function Focus() {
   const handleComplete = () => {
     clearInterval(timerRef.current)
     clearSession()
-    completeFocusBlock(selectedLane, selectedTag, selectedDiff, duration, selectedMode, linkedTask?.id ?? null)
+    // 用 ref 读取 duration/mode，避免 setInterval 里 stale closure 拿到旧值（如 60）
+    completeFocusBlock(selectedLane, selectedTag, selectedDiff, durationRef.current, modeRef.current, linkedTask?.id ?? null)
     setStep('done')
   }
 
   const handleAbandon = () => {
     clearInterval(timerRef.current)
     clearSession()
-    const elapsedSecs = duration * 60 - timeLeft
+    const elapsedSecs = durationRef.current * 60 - timeLeft
     const elapsedMin = Math.max(0, Math.floor(elapsedSecs / 60))
     abandonFocusBlock(selectedLane, selectedTag, selectedDiff, elapsedMin)
     navigate('/')
